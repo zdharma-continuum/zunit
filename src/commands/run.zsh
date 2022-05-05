@@ -69,7 +69,7 @@ function _zunit_execute_test() {
 
   if [[ -n $body ]] && [[ -n $name ]]; then
     # Update the progress indicator
-    [[ -z $tap ]] && revolver update "${name}"
+    [[ -z $tap ]] && [[ -z $quiet ]] && revolver update "${name}"
 
     # Make sure we don't already have a function defined
     (( $+functions[__zunit_tmp_test_function] )) && \
@@ -245,7 +245,7 @@ function _zunit_run_testfile() {
   test_names=()
 
   # Update status message
-  [[ -z $tap ]] && revolver update "Loading tests from $testfile"
+  [[ -z $tap ]] && [[ -z $quiet ]] && revolver update "Loading tests from $testfile"
 
   # A regex pattern to match test declarations
   pattern='^ *@test  *([^ ].*)  *\{ *(.*)$'
@@ -536,6 +536,12 @@ function _zunit_run() {
     verbose=1
   fi
 
+  # Quiet output is enabled
+  if [[ -n $quiet ]] || [[ "$zunit_config_quiet" = "true" ]]; then
+    # Set the $quiet variable, so we can check it later
+    quiet=1
+  fi
+
   # Check if time_limit is specified in the config or as an option
   if [[ -n $time_limit ]]; then
     shift time_limit
@@ -547,7 +553,7 @@ function _zunit_run() {
   testfiles=()
 
   # Start the progress indicator
-  [[ -z $tap ]] && revolver start 'Loading tests'
+  [[ -z $tap ]] && [[ -z $quiet ]] && revolver start 'Loading tests'
 
   # If no arguments are passed, try to work out where the tests are
   if [[ ${#arguments} -eq 0 ]]; then
@@ -583,7 +589,7 @@ function _zunit_run() {
   [[ -n $output_html ]] && _zunit_html_footer >> $logfile_html
 
   # Output results to screen and kill the progress indicator
-  [[ -z $tap ]] && _zunit_output_results && revolver stop
+  [[ -z $tap ]] && _zunit_output_results && [[ -z $quiet ]] && revolver stop
 
   # If the total of ($passed + $skipped) is not equal to the
   # total, then there must have been failures, errors or warnings,

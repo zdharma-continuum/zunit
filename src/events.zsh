@@ -8,7 +8,7 @@
 ###
 function _zunit_fail_shutdown() {
   # Kill the revolver process
-  [[ -z $tap ]] && revolver stop
+  [[ -z $tap ]] && [[ -z $quiet ]] && revolver stop
 
   # Print a message to screen
   echo $(color red bold 'Execution halted after failure')
