@@ -13,6 +13,7 @@ function _zunit_init_usage() {
   echo "  -h, --help         Output help text and exit"
   echo "  -v, --version      Output version information and exit"
   echo "  -t, --travis       Generate .travis.yml in project"
+  echo "  -g, --gh           Generate zunit.yml in project"
 }
 
 ###
