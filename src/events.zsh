@@ -47,7 +47,7 @@ function _zunit_success() {
     return
   fi
 
-  echo "$(color green bold 'PASS'): #$(color cyan ${passed}) $(color black ${name})"
+  echo "$(color green bold 'PASS'): #$(color cyan ${passed}) $(color blue bold underline ${name})"
 }
 
 ###
