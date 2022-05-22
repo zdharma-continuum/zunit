@@ -19,6 +19,7 @@ function _zunit_run_usage() {
   echo "      --output-html      Print results to a HTML page"
   echo "      --allow-risky      Supress warnings generated for risky tests"
   echo "      --time-limit <n>   Set a time limit of n seconds for each test"
+  echo "      --use-revolver      Set a time limit of n seconds for each test"
 }
 
 ###
@@ -47,7 +48,7 @@ function _zunit_output_results() {
   echo
   echo "$total tests run in $(_zunit_human_time $elapsed)"
   echo
-  echo "$(color yellow underline 'Results')                        "
+  echo "$(color yellow underline 'Results')                       "
   echo "$(color green '✔') Passed      $passed                    "
   echo "$(color red '✘') Failed      $failed                      "
   echo "$(color red '‼') Errors      $errors                      "
@@ -64,15 +65,10 @@ function _zunit_output_results() {
 ###
 function _zunit_execute_test() {
   local name="$1" body="$2"
-
   if [[ -n $body ]] && [[ -n $name ]]; then
     # Update the progress indicator
-    [[ -z $tap ]] && revolver update "${name}"
-
     # Make sure we don't already have a function defined
-    (( $+functions[__zunit_tmp_test_function] )) && \
-      unfunction __zunit_tmp_test_function
-
+    (( $+functions[__zunit_tmp_test_function] )) && unfunction __zunit_tmp_test_function
     # Create a wrapper function with our test body inside it
     func="function __zunit_tmp_test_function() {
       # Exit on errors. We do this so that execution stops immediately,
@@ -123,8 +119,7 @@ function _zunit_execute_test() {
 
     # Check the status of the eval, and output any errors
     if [[ $? -ne 0 ]]; then
-      _zunit_error 'Failed to parse test body' $output
-
+      _zunit_error "Failed to parse ${name} test body" $output
       return 126
     fi
 
@@ -135,8 +130,7 @@ function _zunit_execute_test() {
     # Any errors should have been caught above, but if the function
     # does not exist, we can't go any further
     if (( ! $+functions[__zunit_tmp_test_function] )); then
-      _zunit_error 'Failed to parse test body'
-
+      _zunit_error "Failed to parse ${name} test body"
       return 126
     fi
 
@@ -148,17 +142,14 @@ function _zunit_execute_test() {
       # Create another wrapper function around the test
       __zunit_async_test_wrapper() {
         local pid
-
         # Get the current timestamp, and the time limit in ms, and use
         # those to work out the kill time for the sub process
         integer time_limit_ms=$(( time_limit * 1000 ))
         integer time=$(( EPOCHREALTIME * 1000 ))
         integer kill_time=$(( $time + $time_limit_ms ))
-
         # Launch the test function asynchronously and store its PID
         __zunit_tmp_test_function &
         pid=$!
-
         # While the child process is still running
         while kill -0 $pid >/dev/null 2>&1; do
           # Check that the kill time has not yet been reached
@@ -167,11 +158,10 @@ function _zunit_execute_test() {
             # The kill time has been reached, kill the child process,
             # and exit the wrapper function
             kill -9 $pid >/dev/null 2>&1
-            echo "Test took too long to run. Terminated after $time_limit seconds"
+            echo "${name} test exceeded time limit. Terminated after ${time_limit} seconds"
             exit 78
           fi
         done
-
         # Use wait to get the exit code from the background process,
         # and return that so that the test result can be deduced
         wait $pid
@@ -189,29 +179,22 @@ function _zunit_execute_test() {
     state=$?
     if [[ $state -eq 48 ]]; then
       _zunit_skip $output
-
       return
     elif [[ $state -eq 78 ]]; then
       _zunit_error $output
-
       return
     elif [[ -z $allow_risky && $state -eq 248 ]]; then
       # If --verbose is specified, print test output to screen
       [[ -n $verbose && -n $output ]] && echo $output
-
-      _zunit_warn 'No assertions were run, test is risky'
-
+      _zunit_warn 'No assertions were run, ${name} test considered risky'
       return
     elif [[ -n $allow_risky && $state -eq 248 ]] || [[ $state -eq 0 ]]; then
       # If --verbose is specified, print test output to screen
       [[ -n $verbose && -n $output ]] && echo $output
-
       _zunit_success
-
       return
     else
       _zunit_failure $output
-
       return 1
     fi
   fi
@@ -243,7 +226,7 @@ function _zunit_run_testfile() {
   test_names=()
 
   # Update status message
-  [[ -z $tap ]] && revolver update "Loading tests from $testfile"
+  echo "--- Loading tests from $testfile"
 
   # A regex pattern to match test declarations
   pattern='^ *@test  *([^ ].*)  *\{ *(.*)$'
@@ -448,13 +431,14 @@ function _zunit_run() {
   zparseopts -D -E \
     h=help -help=help \
     v=version -version=version \
-    f=fail_fast -fail-fast=fail_fast \
-    t=tap -tap=tap \
-    -verbose=verbose \
-    -output-text=output_text \
-    -output-html=output_html \
     -allow-risky=allow_risky \
-    -time-limit:=time_limit
+    -no-revolver:=use_revolver \
+    -output-html=output_html \
+    -output-text=output_text \
+    -time-limit:=time_limit \
+    -verbose=verbose \
+    f=fail_fast -fail-fast=fail_fast \
+    t=tap -tap=tap
 
   # TAP output is enabled
   if [[ -n $tap ]] || [[ "$zunit_config_tap" = "true" ]]; then
@@ -462,7 +446,7 @@ function _zunit_run() {
     tap=1
 
     # Print the TAP header
-    echo 'TAP version 13'
+    echo '--- TAP version 13'
   fi
 
   # TAP output is disabled
@@ -519,23 +503,24 @@ function _zunit_run() {
     # and run it if it is available
     if [[ -f "$support/bootstrap" ]]; then
       source "$support/bootstrap"
-      echo "$(color green '✔') Sourced bootstrap script $support/bootstrap"
+      echo "$(color green '[SUCCESS]') Sourced bootstrap script $support/bootstrap"
     fi
   fi
-
   # Check if fail_fast is specified in the config or as an option
   if [[ -z $fail_fast ]] && [[ "$zunit_config_fail_fast" = "true" ]]; then
     fail_fast=1
   fi
-
   # Check if allow_risky is specified in the config or as an option
   if [[ -z $allow_risky ]] && [[ "$zunit_config_allow_risky" = "true" ]]; then
     allow_risky=1
   fi
-
   # Check if verbose is specified in the config or as an option
   if [[ -z $verbose ]] && [[ "$zunit_config_verbose" = "true" ]]; then
     verbose=1
+  fi
+  # Check if verbose is specified in the config or as an option
+  if [[ -z $use_revolver ]] && [[ "$zunit_config_use_revolver" = "true" ]]; then
+    use_revolver=1
   fi
 
   # Check if time_limit is specified in the config or as an option
@@ -549,27 +534,22 @@ function _zunit_run() {
   testfiles=()
 
   # Start the progress indicator
-  [[ -z $tap ]] && revolver start 'Loading tests'
-
   # If no arguments are passed, try to work out where the tests are
   if [[ ${#arguments} -eq 0 ]]; then
     # Check for a path defined in .zunit.yml
     if [[ -n $zunit_config_directories_tests ]]; then
       arguments=("$zunit_config_directories_tests")
-
     # Fall back to the directory 'tests' by default
     else
       arguments=("tests")
     fi
   fi
-
   # Loop through each of the passed arguments
   local argument
   for argument in $arguments; do
     # Parse the argument, so that we end up with a list of valid files
     _zunit_parse_argument $argument
   done
-
   # Loop through each of the test files and run them
   local line
   local total=0 passed=0 failed=0 errors=0 warnings=0 skipped=0
@@ -585,7 +565,7 @@ function _zunit_run() {
   [[ -n $output_html ]] && _zunit_html_footer >> $logfile_html
 
   # Output results to screen and kill the progress indicator
-  [[ -z $tap ]] && _zunit_output_results && revolver stop
+  _zunit_output_results
 
   # If the total of ($passed + $skipped) is not equal to the
   # total, then there must have been failures, errors or warnings,
