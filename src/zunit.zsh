@@ -22,11 +22,12 @@ function _zunit_usage() {
   echo "  -v, --version      Output version information and exit"
   echo "  -f, --fail-fast    Stop the test runner immediately after the first failure"
   echo "  -t, --tap          Output results in a TAP compatible format"
-  echo "      --verbose      Prints full output from each test"
-  echo "      --output-text  Print results to a text log, in TAP compatible format"
-  echo "      --output-html  Print results to a HTML page"
   echo "      --allow-risky  Supress warnings generated for risky tests"
+  echo "      --no-revolver  Run tests without revolver spinner"
+  echo "      --output-html  Print results to a HTML page"
+  echo "      --output-text  Print results to a text log, in TAP compatible format"
   echo "      --time-limit   Set a time limit in seconds for each test"
+  echo "      --verbose      Prints full output from each test"
 }
 
 ###
@@ -41,7 +42,6 @@ function _zunit_version() {
 ###
 function _zunit() {
   local help version ctx="$1" missing_dependencies=0 missing_config=1
-
   if [[ -f .zunit.yml ]]; then
     # Try and parse the config file within a subprocess,
     # to avoid killing the main thread
@@ -54,7 +54,7 @@ function _zunit() {
       missing_config=0
     else
       # The config file failed to parse, so we report this to the user and exit
-      echo "\033[0;31mFailed to parse config file\033[0;m" >&2
+      print -P "%F{red}[ERROR]%f: %F{white}Unable to parse configuration file%f" >&2
       exit 1
     fi
   fi
@@ -63,7 +63,7 @@ function _zunit() {
   $(type revolver >/dev/null 2>&1)
   if [[ $? -ne 0 ]]; then
     # 'revolver' could not be found, so print an error message
-    echo "\033[0;31mMissing required dependency: Revolver - https://github.com/molovo/revolver\033[0;m" >&2
+    print -P "%F{red}[ERROR]%f: %F{white}Missing required dependency%f: %F{cyan}Revolver%f - %F{cyan}https://github.com/molovo/revolver%f" >&2
     exit 1
   fi
 
@@ -74,8 +74,7 @@ function _zunit() {
   # If the version option is passed,
   # output version information and exit
   if [[ -n $version ]]; then
-    _zunit_version
-    exit 0
+    _zunit_version && exit 0
   fi
 
   # Check which command has been passed, and run it. If the command
@@ -86,30 +85,24 @@ function _zunit() {
       # If the help option is passed,
       # output usage information and exit
       if [[ -n $help ]]; then
-        _zunit_init_usage
-        exit 0
+        _zunit_init_usage && exit 0
       fi
-
       _zunit_init "${(@)@:2}"
       ;;
     run )
       # If the help option is passed,
       # output usage information and exit
       if [[ -n $help ]]; then
-        _zunit_run_usage
-        exit 0
+        _zunit_run_usage && exit 0
       fi
-
       _zunit_run "${(@)@:2}"
       ;;
     * )
       # If the help option is passed,
       # output usage information and exit
       if [[ -n $help ]]; then
-        _zunit_usage
-        exit 0
+        _zunit_usage && exit 0
       fi
-
       _zunit_run "$@"
       ;;
   esac
