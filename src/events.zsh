@@ -7,9 +7,6 @@
 # or if a fatal error occurred during testing
 ###
 function _zunit_fail_shutdown() {
-  # Kill the revolver process
-  [[ -z $tap ]] && revolver stop
-
   # Print a message to screen
   echo $(color red bold 'Execution halted after failure')
 
@@ -47,7 +44,7 @@ function _zunit_success() {
     return
   fi
 
-  echo "$(color green bold 'PASS'): $(color cyan \#${passed}) ${name}"
+  echo "[$(color green bold 'PASS')] $(color cyan \#${passed}) ${name}"
 }
 
 ###
@@ -65,7 +62,7 @@ function _zunit_failure() {
   if [[ -n $tap ]]; then
     _zunit_tap_failure "$@"
   else
-    echo "$(color red bold 'FAIL'): ${name}"
+    echo "[$(color red bold 'FAIL')] ${name}"
     echo "  $(color red underline ${message})"
     echo "  $(color red ${output})"
   fi
@@ -113,7 +110,7 @@ function _zunit_warn() {
     return
   fi
 
-  echo "$(color yellow bold 'WARN'): ${name}"
+  echo "[$(color yellow bold 'WARN')] ${name}"
   echo "  $(color yellow underline ${message})"
 }
 
@@ -134,6 +131,6 @@ function _zunit_skip() {
     return
   fi
 
-  echo "$(color magenta bold 'SKIPPED'): ${name}"
+  echo "[$(color magenta bold 'SKIPPED')] ${name}"
   echo "  \033[0;38;5;242m# ${message}\033[0;m"
 }
