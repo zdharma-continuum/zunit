@@ -19,11 +19,11 @@ function _zunit_usage() {
   echo
   echo "$(color yellow 'Options:')"
   echo "  -h, --help         Output help text and exit"
-  echo "  -v, --version      Output version information and exit"
   echo "  -f, --fail-fast    Stop the test runner immediately after the first failure"
+  echo "  -r, --revolver     Run tests with revolver spinner"
   echo "  -t, --tap          Output results in a TAP compatible format"
+  echo "  -v, --version      Output version information and exit"
   echo "      --allow-risky  Supress warnings generated for risky tests"
-  echo "      --no-revolver  Run tests without revolver spinner"
   echo "      --output-html  Print results to a HTML page"
   echo "      --output-text  Print results to a text log, in TAP compatible format"
   echo "      --time-limit   Set a time limit in seconds for each test"
@@ -57,14 +57,6 @@ function _zunit() {
       print -P "%F{red}[ERROR]%f: %F{white}Unable to parse configuration file%f" >&2
       exit 1
     fi
-  fi
-
-  # Check for the 'revolver' dependency
-  $(type revolver >/dev/null 2>&1)
-  if [[ $? -ne 0 ]]; then
-    # 'revolver' could not be found, so print an error message
-    print -P "%F{red}[ERROR]%f: %F{white}Missing required dependency%f: %F{cyan}Revolver%f - %F{cyan}https://github.com/molovo/revolver%f" >&2
-    exit 1
   fi
 
   zparseopts -D -E \
