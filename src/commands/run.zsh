@@ -11,15 +11,15 @@ function _zunit_run_usage() {
   echo
   echo "$(color yellow 'Options:')"
   echo "  -h, --help             Output help text and exit"
-  echo "  -v, --version          Output version information and exit"
   echo "  -f, --fail-fast        Stop the test runner immediately after the first failure"
+  echo "  -r  --revolver         Run tests with revolver spinner"
   echo "  -t, --tap              Output results in a TAP compatible format"
-  echo "      --verbose          Prints full output from each test"
-  echo "      --output-text      Print results to a text log, in TAP compatible format"
-  echo "      --output-html      Print results to a HTML page"
+  echo "  -v, --version          Output version information and exit"
   echo "      --allow-risky      Supress warnings generated for risky tests"
+  echo "      --output-html      Print results to a HTML page"
+  echo "      --output-text      Print results to a text log, in TAP compatible format"
   echo "      --time-limit <n>   Set a time limit of n seconds for each test"
-  echo "      --use-revolver      Set a time limit of n seconds for each test"
+  echo "      --verbose          Prints full output from each test"
 }
 
 ###
@@ -421,7 +421,7 @@ function _zunit_parse_argument() {
 ###
 function _zunit_run() {
   local -a arguments testfiles
-  local fail_fast tap allow_risky verbose
+  local fail_fast tap allow_risky verbose revolver
   local output_text logfile_text output_html logfile_html
 
   # Load the datetime module, and record the start time
@@ -431,14 +431,14 @@ function _zunit_run() {
   zparseopts -D -E \
     h=help -help=help \
     v=version -version=version \
+    f=fail_fast -fail-fast=fail_fast \
+    r=revolver -revolver=revolver \
+    t=tap -tap=tap \
     -allow-risky=allow_risky \
-    -no-revolver:=use_revolver \
     -output-html=output_html \
     -output-text=output_text \
     -time-limit:=time_limit \
-    -verbose=verbose \
-    f=fail_fast -fail-fast=fail_fast \
-    t=tap -tap=tap
+    -verbose=verbose
 
   # TAP output is enabled
   if [[ -n $tap ]] || [[ "$zunit_config_tap" = "true" ]]; then
@@ -519,8 +519,16 @@ function _zunit_run() {
     verbose=1
   fi
   # Check if verbose is specified in the config or as an option
-  if [[ -z $use_revolver ]] && [[ "$zunit_config_use_revolver" = "true" ]]; then
-    use_revolver=1
+  if [[ -z $revolver ]] && [[ "$zunit_config_revolver" = "true" ]]; then
+    # Check for the 'revolver' dependency
+    $(type revolver >/dev/null 2>&1)
+    if [[ $? -ne 0 ]]; then
+      # 'revolver' could not be found, so print an error message
+      print -P "%F{red}[ERROR]%f: %F{white}Missing required dependency%f: %F{cyan}Revolver%f - %F{cyan}https://github.com/molovo/revolver%f" >&2
+      exit 1
+    else
+      revolver=1
+    fi
   fi
 
   # Check if time_limit is specified in the config or as an option
