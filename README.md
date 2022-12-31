@@ -16,13 +16,12 @@ ZUnit is a powerful unit testing framework for ZSH
 ### [Zinit](https://github.com/zdharma-continuum/zinit)
 
 ```sh
-zinit for \
-	as'command' \
-	atclone'./build.zsh' \
-	light-mode \
-	nocompile \
-	pick'zunit' \
-	@zdharma-continuum/zunit
+zinit for \                                       
+    as'command' \
+    atclone'./build.zsh' \
+    nocompile \
+    pick'zunit' \
+  @zdharma-continuum/zunit
 ```
 
 ### Manual
@@ -46,7 +45,7 @@ Tests in ZUnit have a simple syntax, which is inspired by the
 #!/usr/bin/env zunit
 
 @test 'example test' {
-	# test logic
+  # test logic
 }
 ```
 
