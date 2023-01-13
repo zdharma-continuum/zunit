@@ -20,4 +20,4 @@ cat src/zunit.zsh | grep -v -E '^(\s*#.*[^"]|\s*)$' >> zunit
 chmod u+x zunit
 
 # Let the user know we're finished
-echo "\033[0;32m✔\033[0;m ZUnit built successfully"
+print -- "\033[0;32m==>\033[0;m z-unit built successfully"
