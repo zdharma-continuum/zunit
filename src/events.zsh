@@ -8,7 +8,7 @@
 ###
 function _zunit_fail_shutdown() {
   # Print a message to screen
-  print -- "(color red bold 'Execution halted after failure')"
+  echo $(color red bold 'Execution halted after failure')
 
   # Record the time at which testing ended
   end_time=$((EPOCHREALTIME*1000))
@@ -44,7 +44,7 @@ function _zunit_success() {
     return
   fi
 
-  echo "==> $(color green bold 'PASS') ${name} (P:${passed}|F:${failed}|T:${total})"
+  echo "==> $(color green bold 'PASS') $(color cyan ${name}) [$(color green ${passed})|$(color red ${failed})|$(color white ${total})]"
 }
 
 ###
@@ -62,7 +62,7 @@ function _zunit_failure() {
   if [[ -n $tap ]]; then
     _zunit_tap_failure "$@"
   else
-    echo "==> $(color red bold 'FAIL') ${name}  (P:${passed}|F:${failed}|T:${total})"
+    echo "==> $(color red bold 'FAIL') ${name}"
     echo "  $(color red underline ${message})"
     echo "  $(color red ${output})"
   fi
@@ -85,9 +85,9 @@ function _zunit_error() {
   if [[ -n $tap ]]; then
     _zunit_tap_error "$@"
   else
-    echo "==> $(color red bold 'ERROR' ${name}) (P:${passed}|F:${failed}|T:${total})"
-    echo " $(color red underline ${message})"
-    echo " $(color red ${output})"
+    echo "==> $(color red bold 'ERROR' ${name})"
+    echo "  $(color red underline ${message})"
+    echo "  $(color red ${output})"
   fi
 
   [[ -n $fail_fast ]] && _zunit_fail_shutdown
@@ -110,8 +110,9 @@ function _zunit_warn() {
     return
   fi
 
-  echo "==> $(color yellow bold 'WARN') ${name}"
-  # print -- "\t$(color yellow underline ${message})"
+  echo "[$(color yellow bold 'WARN')] ${name}"
+  echo "  $(color yellow underline ${message})"
+}
 
 ###
 # Output a skipped test message
@@ -130,6 +131,5 @@ function _zunit_skip() {
     return
   fi
 
-  echo "[$(color magenta bold 'SKIPPED')] ${name}"
-  # echo "  \033[0;38;5;242m# ${message}\033[0;m"
+  echo "==> $(color magenta bold 'SKIPPED') ${name}"
 }
