@@ -44,7 +44,7 @@ function _zunit_success() {
     return
   fi
 
-  echo "[$(color green bold 'PASS')] $(color cyan \#${passed}) ${name}"
+  echo "[$(color green bold 'PASS')] ${name} (P: ${passed} | F: ${failed} | T: ${total})"
 }
 
 ###
@@ -62,7 +62,7 @@ function _zunit_failure() {
   if [[ -n $tap ]]; then
     _zunit_tap_failure "$@"
   else
-    echo "[$(color red bold 'FAIL')] ${name}"
+    echo "[$(color red bold 'FAIL')] ${name} (P: ${passed} | F: ${failed} | T: ${total})"
     echo "  $(color red underline ${message})"
     echo "  $(color red ${output})"
   fi
@@ -85,7 +85,7 @@ function _zunit_error() {
   if [[ -n $tap ]]; then
     _zunit_tap_error "$@"
   else
-    echo "$(color red bold 'ERROR' ${name})"
+    echo "$(color red bold 'ERROR' ${name}) (P: ${passed} | F: ${failed} | T: ${total})"
     echo "  $(color red underline ${message})"
     echo "  $(color red ${output})"
   fi
