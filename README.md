@@ -7,21 +7,19 @@ ZUnit is a powerful unit testing framework for ZSH
 
 ## Installation
 
-> **WARNING**: Although the majority of ZUnit's functionality works as expected,
-> it is in the early stages of development, and as such bugs are likely to be
-> present. Please continue with caution, and
-> [report any issues](https://github.com/zunit-zsh/zunit/issues/new) you may
-> have.
+> **WARNING**: Although the majority of ZUnit's functionality works as expected, it is in the early stages of
+> development, and as such bugs are likely to be present. Please continue with caution, and
+> [report any issues](https://github.com/zunit-zsh/zunit/issues/new) you may have.
 
 ### [Zinit](https://github.com/zdharma-continuum/zinit)
 
 ```sh
-zinit for \                                       
-    as'command' \
-    atclone'./build.zsh' \
-    nocompile \
-    pick'zunit' \
-  @zdharma-continuum/zunit
+zinit for \ 
+as'command' \
+	atclone'./build.zsh' \
+	nocompile \
+	pick'zunit' \
+	@zdharma-continuum/zunit
 ```
 
 ### Manual
@@ -38,8 +36,7 @@ cp ./zunit /usr/local/bin
 
 ### Test syntax
 
-Tests in ZUnit have a simple syntax, which is inspired by the
-[BATS](https://github.com/sstephenson/bats) framework.
+Tests in ZUnit have a simple syntax, which is inspired by the [BATS](https://github.com/sstephenson/bats) framework.
 
 ```zsh
 #!/usr/bin/env zunit
@@ -49,9 +46,8 @@ Tests in ZUnit have a simple syntax, which is inspired by the
 }
 ```
 
-The body of each test can contain any valid ZSH code. The zunit shebang
-`#!/usr/bin/env zunit` **MUST** appear at the top of each test file, or ZUnit
-will not run it.
+The body of each test can contain any valid ZSH code. The zunit shebang `#!/usr/bin/env zunit` **MUST** appear at the
+top of each test file, or ZUnit will not run it.
 
 ## Documentation
 
@@ -60,8 +56,7 @@ For a full breakdown of ZUnit's syntax and functionality, check out the
 
 ## Contributing
 
-All contributions are welcome, and encouraged. Please read our
-[contribution guidelines](contributing.md) and
+All contributions are welcome, and encouraged. Please read our [contribution guidelines](contributing.md) and
 [code of conduct](code-of-conduct.md) for more information.
 
 ## License
