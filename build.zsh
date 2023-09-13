@@ -9,16 +9,17 @@
     emulate -L zsh
     setopt extended_glob
 
-    local ZUNIT_BIN="${${0:h}:A}/zunit"
+    local ZUNIT_DIR="${${0:h}:A}"
+    local ZUNIT_BIN="$ZUNIT_DIR/zunit"
     # Clear the file to start with
     cat /dev/null > "$ZUNIT_BIN"
     # Start with the shebang
     echo "#!/usr/bin/env zsh\n" >> "$ZUNIT_BIN"
     # Print each of the source files into the target, removing any comments
     # and blank lines from the compiled executable
-    cat src/**/(^zunit).zsh | grep -v -E '^(\s*#.*[^"]|\s*)$' >> "$ZUNIT_BIN"
+    cat ${ZUNIT_DIR}/src/**/(^zunit).zsh | grep -v -E '^(\s*#.*[^"]|\s*)$' >> "$ZUNIT_BIN"
     # Print the main command last
-    cat src/zunit.zsh | grep -v -E '^(\s*#.*[^"]|\s*)$' >> "$ZUNIT_BIN"
+    cat ${ZUNIT_DIR}/src/zunit.zsh | grep -v -E '^(\s*#.*[^"]|\s*)$' >> "$ZUNIT_BIN"
     # Make sure the file is executable
     chmod u+x "$ZUNIT_BIN"
     # Let the user know we're finished
