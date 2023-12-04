@@ -8,8 +8,7 @@ setopt extendedglob warncreateglobal typesetsilent noshortloops
 0="${${ZERO:-${0:#$ZSH_ARGZERO}}:-${(%):-%N}}"
 0="${${(M)0:#/*}:-$PWD/$0}"
 
-local ZUNIT_REPO_DIR="${0:h}"
-local ZUNIT_BIN="$ZUNIT_REPO_DIR/zunit"
+local ZUNIT_BIN="${${0:h}:A}/zunit"
 
 
 # Clear the file to start with
@@ -29,4 +28,4 @@ cat ${ZUNIT_BIN:h}/src/zunit.zsh | grep -v -E '^(\s*#.*[^"]|\s*)$' >> "$ZUNIT_BI
 chmod u+x "$ZUNIT_BIN"
 
 # Let the user know we're finished
-echo "\033[0;32m==>\033[0;m ZUnit built successfully at \033[0;32m${ZUNIT_BIN}\033[0;m"
+builtin print -Pr "==> %Bzunit built at ${(D)ZUNIT_BIN}%b"
