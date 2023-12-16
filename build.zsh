@@ -10,7 +10,6 @@ setopt extendedglob warncreateglobal typesetsilent noshortloops
 
 local ZUNIT_BIN="${${0:h}:A}/zunit"
 
-
 # Clear the file to start with
 cat /dev/null > "$ZUNIT_BIN"
 
