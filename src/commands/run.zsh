@@ -173,16 +173,17 @@ function _zunit_human_time() {
 # Output test results
 function _zunit_output_results() {
     integer elapsed=$(( end_time - start_time ))
-    echo
-    echo "$total tests run in $(_zunit_human_time $elapsed)"
-    echo
-    print -Pr "%BResults%b"
+    print ' '
+    print -PR "= "$'\e[1;4m'"ZUnit Results"$'\e[0m'" ====="
     print -Pr "%F{green}Passed%f: ${#passed}/${total}"
     print -Pr "%F{red}Errors%f: ${#errors} $( (( $#errors )) && print "(${(j:, :)errors})" )"
     print -Pr "%F{red}Failed%f: ${#failed} $( (( $#failed )) && print "(${(j:, :)failed})" )"
     print -Pr "%F{yellow}Warnings%f: ${#warnings} $( (( $#warnings )) && print "(${(j:, :)warnings})" )"
     print -Pr "%F{white}Skipped%f: ${#skipped} $( (( $#skipped )) && print "(${(j:, :)skipped})" )"
-    echo
+    print ' '
+    print -Pr "$total tests ran in $(_zunit_human_time $elapsed)"
+    print -Pr "%B======================%b"
+    print ' '
 
     [[ -n $output_text ]] && echo "TAP report written at $PWD/$logfile_text"
     [[ -n $output_html ]] && echo "HTML report written at $PWD/$logfile_html"
@@ -274,9 +275,9 @@ function _zunit_run() {
     # TAP output is disabled
     if [[ -z $tap ]]; then
         # Print version information
-        echo $(color yellow 'Launching ZUnit')
-        echo "ZUnit: $(_zunit_version)"
-        echo "ZSH:   $(zsh --version)"
+        echo
+        print -Pr "%F{green}==>%f Launching ZUnit $(_zunit_version)"
+        print -Pr "%F{blue}==>%f ZSH: $(zsh --version)"
         echo
     fi
 
@@ -325,7 +326,7 @@ function _zunit_run() {
         # and run it if it is available
         if [[ -f "$support/bootstrap" ]]; then
             source "$support/bootstrap"
-            echo "$(color green '[SUCCESS]') Sourced bootstrap script $support/bootstrap"
+            print -Pr "%F{blue}==>%f Sourced bootstrap script $support/bootstrap"
         fi
     fi
     # Check if fail_fast is specified in the config or as an option
@@ -416,7 +417,7 @@ function _zunit_run_testfile() {
     test_names=()
 
     # Update status message
-    print -Pr "%F{blue}==>%f Loading tests from %B${testfile}%b"
+    print -Pr "%F{blue}==>%f Loading tests in %B${testfile}%b"
 
     # A regex pattern to match test declarations
     pattern='^ *@test  *([^ ].*)  *\{ *(.*)$'
