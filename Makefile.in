@@ -111,8 +111,11 @@ stats:
 install:
 	install -cv -m755 ${TARGET} ${PREFIX}/bin/zunit
 
+uninstall:
+	rm -f ${PREFIX}/bin/zunit
+
 clean:
-	rm -rf ${BIN} ${PREFIX}/bin/zunit
+	rm -rf ${BIN} Makefile
 
 install-deps:
 	sudo pip install cram=='0.6.*'
