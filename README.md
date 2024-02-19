@@ -14,12 +14,7 @@ ZUnit is a powerful unit testing framework for ZSH
 ### [Zinit](https://github.com/zdharma-continuum/zinit)
 
 ```sh
-zinit for \ 
-as'command' \
-	atclone'./build.zsh' \
-	nocompile \
-	pick'zunit' \
-	@zdharma-continuum/zunit
+zinit build for @zdharma-continuum/zunit
 ```
 
 ### Manual
@@ -27,9 +22,9 @@ as'command' \
 ```zsh
 git clone https://github.com/zdharma-continuum/zunit.git
 cd zunit
-./build.zsh
-chmod u+x ./zunit
-cp ./zunit /usr/local/bin
+./configure
+make
+make install
 ```
 
 ## Writing Tests
