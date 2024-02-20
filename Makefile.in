@@ -7,8 +7,8 @@ CRAM_OPTS ?= -v
 
 PROJECT ?= $(CURDIR)
 BIN     ?= ${PROJECT}/bin
+DOCS    ?= ${PROJECT}/docs
 SRC     ?= ${PROJECT}/src
-TEST    ?= ${PROJECT}/tests
 TESTS   ?= ${PROJECT}/tests
 
 ZSH_VERSION     ?= zsh-5.8
@@ -35,7 +35,7 @@ BANNER      = ${BANNER_SEP}\n\# ${BANNER_TEXT}\n${BANNER_SEP}\n
 HEADER_TEXT =\
 \#!/usr/bin/env zsh\n\
 \# Zunit: A unit test framework for zsh\n\
-\# License: MIT License <mitl.sharats.me>\n
+\# License: MIT License\n
 
 define ised
 	sed $(1) $(2) > "$(2).1"
@@ -52,32 +52,24 @@ endef
 all: build
 
 release:
-	# Move to release branch
 	git checkout develop
 	git checkout -b release/${VERSION}
-	# Run build and tests
 	${MAKE} build tests
-	# Update changelog
 	${EDITOR} CHANGELOG.md
-	# Build release commit
 	git add CHANGELOG.md README.mkd ${VERSION_FILE}
 	git commit -S -m "Update changelog for ${VERSION}"
-	# Update binary artifact
 	git add ${PROG}
 	git commit -S -m "Build release ${VERSION}"
 
 publish:
 	git push origin release/${VERSION}
-	# Merge release branch into develop before deploying
 
 deploy:
 	git checkout develop
 	git tag -m "Build release ${VERSION}" -s ${VERSION}
 	git archive --output=${VERSION}.tar.gz --prefix=zunit-$$(echo ${VERSION}|sed s/v//)/ ${VERSION}
 	zcat ${VERSION}.tar.gz | gpg --armor --detach-sign >${VERSION}.tar.gz.sign
-	# Verify signature
 	zcat ${VERSION}.tar.gz | gpg --verify ${VERSION}.tar.gz.sign -
-	# Push upstream
 	git push upstream ${VERSION}
 
 .container:
@@ -87,14 +79,17 @@ else ifeq (${USE_CONTAINER}, no)
 	${COMMAND}
 endif
 
+docs:
+	mkdir ${DOCS}; cd ${DOCS}; zsh -dfilc "zsd -v --scomm --cignore '(\#*FUNCTION:[[:space:]][\:\∞\.\+\@\-a-zA-Z0-9]*[\[]*|}[[:space:]]\#[[:space:]][\]]*)' ${GLOB}"
+
 info:
 	@${MAKE} .container COMMAND="sh -c 'cat ${PROJECT}/VERSION; zsh --version; git --version; env'"
 
-itests:
-	@${MAKE} tests CRAM_OPTS=-i
+tests:
+	@${make} .container command="sh -c 'zdotdir=${tests} zunit=${project} cram ${cram_opts} --shell=zsh ${test}'"
 
 tests:
-	@${MAKE} .container COMMAND="sh -c 'ZDOTDIR=${TESTS} ZUNIT=${PROJECT} cram ${CRAM_OPTS} --shell=zsh ${TEST}'"
+	${PROG} run
 
 install:
 	install -cv -m755 ${PROG} ${PREFIX}/bin/zunit
@@ -117,4 +112,3 @@ build:
 	@$(call ised,"s/{{ZUNIT_REVISION}}/$$(git log -n1 --format=%h -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_REVISION_DATE}}/$$(git log -n1 --format='%ai' -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_VERSION}}/$$(cat ${VERSION_FILE})/",${PROG})
-
