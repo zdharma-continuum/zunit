@@ -111,4 +111,4 @@ build:
 	@for src in ${GLOB}; do echo "----> $$src"; cat "$$src" | grep -v -e '#\svim.*' -e '^(\s*#.*|\s*)\$$' >> ${PROG}; done
 	@$(call ised,"s/{{ZUNIT_REVISION}}/$$(git log -n1 --format=%h -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_REVISION_DATE}}/$$(git log -n1 --format='%ai' -- src)/",${PROG})
-	@$(call ised,"s/{{ZUNIT_VERSION}}/$$(cat ${VERSION_FILE})/",${PROG})
+	@$(call ised,"s/{{ZUNIT_VERSION}}/$$(echo ${VERSION})/",${PROG})
