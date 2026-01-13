@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env zsh
 # vim: ft=zsh sw=4 ts=4 noet!
 target=Makefile
 arguments="$@"
