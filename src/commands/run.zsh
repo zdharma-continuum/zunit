@@ -245,7 +245,7 @@ function _zunit_parse_argument() {
 function _zunit_run() {
     local -a arguments testfiles
     local fail_fast tap allow_risky verbose revolver
-    local parallel _zunit_parallel_child __zunit_parallel_crashed
+    local parallel _zunit_parallel_child
     local output_text logfile_text output_html logfile_html
 
     # Load the datetime module, and record the start time
@@ -409,11 +409,18 @@ function _zunit_run() {
     # Output results to screen and kill the progress indicator
     _zunit_output_results
 
-    # If the total of ($passed + $skipped) is not equal to the
-    # total, then there must have been failures, errors or warnings,
-    # in which case this assertion will return the correct exit code
-    # for the test run as a whole
-    [[ -z $__zunit_parallel_crashed && $(( $#passed + $#skipped )) -eq $total ]]
+    # If any errors were reported, or the total of ($passed + $skipped)
+    # is not equal to the total, then there must have been failures,
+    # errors or warnings, in which case this assertion will return the
+    # correct exit code for the test run as a whole. Errors are checked
+    # separately because file-level errors (e.g. an unparseable @setup)
+    # are reported without incrementing the total
+    [[ $#errors -eq 0 && $(( $#passed + $#skipped )) -eq $total ]]
+} # ]]]
+# FUNCTION: _zunit_testfile_header [[[
+# Print the loading header for a test file
+function _zunit_testfile_header() {
+    print -Pr "%F{blue}==>%f Loading tests in %B${1}%b"
 } # ]]]
 # FUNCTION: _zunit_run_testfile [[[
 # Run all tests within a file
@@ -432,7 +439,7 @@ function _zunit_run_testfile() {
 
     # Update status message. Parallel workers stay silent - the
     # parent prints the header while replaying results
-    [[ -z $_zunit_parallel_child ]] && print -Pr "%F{blue}==>%f Loading tests in %B${testfile}%b"
+    [[ -z $_zunit_parallel_child ]] && _zunit_testfile_header "$testfile"
 
     # A regex pattern to match test declarations
     pattern='^ *@test  *([^ ].*)  *\{ *(.*)$'
@@ -503,9 +510,11 @@ function _zunit_run_testfile() {
         # Quietly eval the body into a variable as a first test
         output=$(eval "$(echo "$setupfunc")" 2>&1)
 
-        # Check the status of the eval, and output any errors
+        # Check the status of the eval, and output any errors. In
+        # single-file parallel mode every group parses the file, so
+        # only the first group reports the error to avoid duplicates
         if [[ $? -ne 0 ]]; then
-            _zunit_error "Failed to parse setup method" $output
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse setup method" $output
 
             return 126
         fi
@@ -517,7 +526,7 @@ function _zunit_run_testfile() {
         # Any errors should have been caught above, but if the function
         # does not exist, we can't go any further
         if (( ! $+functions[__zunit_test_setup] )); then
-            _zunit_error "Failed to parse setup method"
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse setup method"
 
             return 126
         fi
@@ -533,9 +542,10 @@ function _zunit_run_testfile() {
         # Quietly eval the body into a variable as a first test
         output=$(eval "$(echo "$teardownfunc")" 2>&1)
 
-        # Check the status of the eval, and output any errors
+        # Check the status of the eval, and output any errors. As with
+        # setup errors, only the first parallel group reports this
         if [[ $? -ne 0 ]]; then
-            _zunit_error "Failed to parse teardown method" $output
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse teardown method" $output
 
             return 126
         fi
@@ -547,7 +557,7 @@ function _zunit_run_testfile() {
         # Any errors should have been caught above, but if the function
         # does not exist, we can't go any further
         if (( ! $+functions[__zunit_test_teardown] )); then
-            _zunit_error "Failed to parse teardown method"
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse teardown method"
 
             return 126
         fi
@@ -565,6 +575,12 @@ function _zunit_run_testfile() {
     fi
     local name body
     for name in "${test_names[@]}"; do
+        # Stop early if another parallel worker has already failed
+        # under --fail-fast
+        if [[ -n $_zunit_parallel_child && -n $__zunit_parallel_fail_fast && -f $__zunit_parallel_abortfile ]]; then
+            break
+        fi
+
         if (( i >= __zunit_lo && i <= __zunit_hi )); then
             body="${tests[$i]}"
             _zunit_execute_test "$name" "$body"

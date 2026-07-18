@@ -7,6 +7,9 @@
 function _zunit_parallel_child_bail() {
     [[ -n $__zunit_parallel_fail_fast ]] || return 0
 
+    # Signal the other workers and the spawn loop to stop
+    : >| "$__zunit_parallel_abortfile"
+
     _zunit_parallel_child_finish
     exit 1
 } # ]]]
@@ -22,6 +25,8 @@ function _zunit_parallel_child_finish() {
             print -r -- "  ${(q+)event}"
         done
         print -r -- ")"
+        # Written last, so a truncated state file is detectable
+        print -r -- "__zunit_parallel_done=1"
     } > "${__zunit_parallel_statefile}.tmp"
 
     mv "${__zunit_parallel_statefile}.tmp" "$__zunit_parallel_statefile"
@@ -35,6 +40,7 @@ function _zunit_parallel_child_init() {
 
     _zunit_parallel_child=1
     __zunit_parallel_statefile="$1.state"
+    __zunit_parallel_abortfile="${1:h}/abort"
     __zunit_parallel_fail_fast=$fail_fast
     __zunit_parallel_events=()
 
@@ -71,30 +77,40 @@ function _zunit_parallel_child_init() {
     }
 } # ]]]
 # FUNCTION: _zunit_parallel_cores [[[
-# Detect the number of available CPU cores
+# Detect the number of available CPU cores. The commands are tried
+# directly rather than probed via $+commands, because the first
+# access to the commands hash scans every directory in $PATH, which
+# is very slow on systems with slow filesystem mounts in their path
 function _zunit_parallel_cores() {
     integer cores=0
 
-    if (( $+commands[nproc] )); then
-        cores=$(nproc 2>/dev/null)
-    elif (( $+commands[getconf] )); then
-        cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null)
-    elif (( $+commands[sysctl] )); then
-        cores=$(sysctl -n hw.ncpu 2>/dev/null)
-    fi
+    cores=$(nproc 2>/dev/null) \
+        || cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null) \
+        || cores=$(sysctl -n hw.ncpu 2>/dev/null)
 
     (( cores > 0 )) || cores=2
 
     echo $cores
 } # ]]]
+# FUNCTION: _zunit_parallel_count_tests [[[
+# Approximate the number of tests in a file. Used only to bound the
+# worker count, so an overcount is harmless
+function _zunit_parallel_count_tests() {
+    integer count=$(grep -cE '^ *@test +[^ ].* +\{' "$1" 2>/dev/null)
+
+    (( count > 0 )) || count=1
+
+    echo $count
+} # ]]]
 # FUNCTION: _zunit_parallel_record [[[
 # Record a result event, preserving the current test name
-# and test count at the time of the event
+# and test count at the time of the event. Each field is quoted
+# before joining so payloads containing the separator byte survive
 function _zunit_parallel_record() {
     local -a fields
     fields=("$1" "$name" "$total" "${(@)@:2}")
 
-    __zunit_parallel_events+=("${(pj:\x1f:)fields}")
+    __zunit_parallel_events+=("${(pj:\x1f:)${(@q+)fields}}")
 } # ]]]
 # FUNCTION: _zunit_parallel_replay [[[
 # Replay a worker's recorded events through the real event handlers
@@ -102,20 +118,23 @@ function _zunit_parallel_replay() {
     local statefile="$1.state" event
     local -a __zunit_parallel_events fields
     integer __zunit_parallel_total=0
+    integer __zunit_parallel_done=0
     integer __zunit_parallel_base=$total
 
-    if [[ ! -f $statefile ]]; then
-        # The worker died before it could report its results
-        __zunit_parallel_crashed=1
+    [[ -f $statefile ]] && source "$statefile" 2>/dev/null
+
+    if (( ! __zunit_parallel_done )); then
+        # The worker died before it could report its results. Count
+        # it as a single errored test so totals, TAP numbering and
+        # the exit code all reflect the crash
         name='parallel worker'
+        total=$(( __zunit_parallel_base + 1 ))
         _zunit_error 'Parallel worker exited unexpectedly' "$(cat "$1.log" 2>/dev/null)"
         return 1
     fi
 
-    source "$statefile"
-
     for event in "${__zunit_parallel_events[@]}"; do
-        fields=("${(@ps:\x1f:)event}")
+        fields=("${(@Q)${(@ps:\x1f:)event}}")
         name="${fields[2]}"
         total=$(( __zunit_parallel_base + ${fields[3]:-0} ))
 
@@ -139,7 +158,7 @@ function _zunit_parallel_run() {
     # worker subshells via dynamic scope, so every name is prefixed
     # to avoid collisions with variables used in tests
     integer __zunit_parallel_max=$(_zunit_parallel_cores)
-    integer __zunit_parallel_k
+    integer __zunit_parallel_k __zunit_parallel_slices
     local __zunit_parallel_file __zunit_parallel_prev
     local -a __zunit_parallel_ordered __zunit_parallel_args
     local -a __zunit_parallel_groups __zunit_parallel_ngroups
@@ -148,16 +167,31 @@ function _zunit_parallel_run() {
     __zunit_parallel_ordered=(${(o)testfiles})
     (( ${#__zunit_parallel_ordered} > 0 )) || return 0
 
-    local __zunit_parallel_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/zunit-parallel.XXXXXXXX")"
+    local __zunit_parallel_tmpdir
+    __zunit_parallel_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/zunit-parallel.XXXXXXXX")"
+    if [[ $? -ne 0 || ! -d $__zunit_parallel_tmpdir ]]; then
+        echo $(color red 'Failed to create a temporary directory for the parallel run') >&2
+        exit 1
+    fi
+
+    # Clean the temporary directory up on exit, and make fatal
+    # signals exit the shell so the EXIT trap still runs
     trap "rm -rf ${(q)__zunit_parallel_tmpdir}" EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
 
     # Build the list of work units. Each unit is either a whole test
-    # file, or a contiguous slice of the tests in a single file
+    # file, or a contiguous slice of the tests in a single file, with
+    # no more slices than the file has tests
     if (( ${#__zunit_parallel_ordered} == 1 )); then
-        for (( __zunit_parallel_k=1; __zunit_parallel_k <= __zunit_parallel_max; __zunit_parallel_k++ )); do
+        __zunit_parallel_slices=$(_zunit_parallel_count_tests "${${(s/@/)__zunit_parallel_ordered[1]}[1]}")
+        (( __zunit_parallel_slices > __zunit_parallel_max )) && __zunit_parallel_slices=$__zunit_parallel_max
+
+        for (( __zunit_parallel_k=1; __zunit_parallel_k <= __zunit_parallel_slices; __zunit_parallel_k++ )); do
             __zunit_parallel_args+=("${__zunit_parallel_ordered[1]}")
             __zunit_parallel_groups+=($__zunit_parallel_k)
-            __zunit_parallel_ngroups+=($__zunit_parallel_max)
+            __zunit_parallel_ngroups+=($__zunit_parallel_slices)
         done
     else
         for __zunit_parallel_file in "${__zunit_parallel_ordered[@]}"; do
@@ -170,6 +204,10 @@ function _zunit_parallel_run() {
     # Spawn a worker subshell per unit, never running more
     # than $__zunit_parallel_max workers at once
     for (( __zunit_parallel_k=1; __zunit_parallel_k <= ${#__zunit_parallel_args}; __zunit_parallel_k++ )); do
+        # Once a worker has failed under --fail-fast there is no
+        # point starting any further work
+        [[ -n $fail_fast && -f "$__zunit_parallel_tmpdir/abort" ]] && break
+
         _zunit_parallel_wait_slot $__zunit_parallel_max
         (
             _zunit_parallel_child_init "$__zunit_parallel_tmpdir/$__zunit_parallel_k"
@@ -181,17 +219,21 @@ function _zunit_parallel_run() {
         __zunit_parallel_pids+=($!)
     done
 
-    wait
+    # Wait for the tracked workers only - a bare wait would also
+    # block on any background process left behind by a bootstrap
+    # script sourced into this shell
+    (( ${#__zunit_parallel_pids} )) && wait "${__zunit_parallel_pids[@]}"
 
     # Replay each worker's recorded events, in the order a serial
-    # run would have produced them
+    # run would have produced them. Under --fail-fast the replay of
+    # the first failure exits before any unspawned unit is reached
     __zunit_parallel_prev=''
     for (( __zunit_parallel_k=1; __zunit_parallel_k <= ${#__zunit_parallel_args}; __zunit_parallel_k++ )); do
         __zunit_parallel_file="${${(s/@/)__zunit_parallel_args[$__zunit_parallel_k]}[1]}"
 
         # Print the file header once per file - workers suppress theirs
         if [[ "$__zunit_parallel_file" != "$__zunit_parallel_prev" ]] || (( ${__zunit_parallel_groups[$__zunit_parallel_k]} == 0 )); then
-            print -Pr "%F{blue}==>%f Loading tests in %B${__zunit_parallel_file}%b"
+            _zunit_testfile_header "$__zunit_parallel_file"
         fi
         __zunit_parallel_prev="$__zunit_parallel_file"
 
@@ -205,14 +247,27 @@ function _zunit_parallel_wait_slot() {
     local pid
     local -a alive
 
+    zmodload zsh/parameter 2>/dev/null
+    zmodload zsh/zselect 2>/dev/null
+
     while (( ${#__zunit_parallel_pids} >= max_procs )); do
         alive=()
         for pid in "${__zunit_parallel_pids[@]}"; do
-            kill -0 $pid 2>/dev/null && alive+=($pid)
+            # Check the shell's own job table rather than kill -0,
+            # which can be fooled by a recycled PID
+            if [[ -n ${(M)${(v)jobstates}:#running:*:${pid}=*} ]]; then
+                alive+=($pid)
+            fi
         done
         __zunit_parallel_pids=($alive)
 
-        (( ${#__zunit_parallel_pids} >= max_procs )) && sleep 0.1
+        if (( ${#__zunit_parallel_pids} >= max_procs )); then
+            if (( $+builtins[zselect] )); then
+                zselect -t 10 2>/dev/null
+            else
+                sleep 0.1
+            fi
+        fi
     done
 
     return 0

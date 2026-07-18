@@ -8,30 +8,34 @@
 
 # Outputs are compared via cksum because they are multi-line strings
 # full of ANSI escapes, which the same_as assertion would otherwise
-# treat as a glob pattern
+# treat as a glob pattern. Before comparing, a known marker is
+# asserted on the raw serial output so the parity check cannot pass
+# vacuously on two identical failure messages
 
 @test 'parallel output matches serial output for multiple files' {
-  serial_sum=$(cd "$fixture" && zsh "$zunit_bin" run tests 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests 2>&1 | grep -v 'ran in')
   parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests 2>&1 | grep -v 'ran in' | cksum)
 
-  assert "$serial_sum" is_not_empty
-  assert "$parallel_sum" same_as "$serial_sum"
+  assert "$serial_out" matches 'a first passes'
+  assert "$serial_out" matches 'single eight passes'
+  assert "$(print -r -- "$serial_out" | cksum)" same_as "$parallel_sum"
 }
 
 @test 'parallel output matches serial output for a single file' {
-  serial_sum=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v 'ran in')
   parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests/single-mixed.zunit 2>&1 | grep -v 'ran in' | cksum)
 
-  assert "$serial_sum" is_not_empty
-  assert "$parallel_sum" same_as "$serial_sum"
+  assert "$serial_out" matches 'single eight passes'
+  assert "$(print -r -- "$serial_out" | cksum)" same_as "$parallel_sum"
 }
 
 @test 'parallel TAP output matches serial TAP output' {
-  serial_sum=$(cd "$fixture" && zsh "$zunit_bin" run --tap tests 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run --tap tests 2>&1 | grep -v 'ran in')
   parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --tap --parallel tests 2>&1 | grep -v 'ran in' | cksum)
 
-  assert "$serial_sum" is_not_empty
-  assert "$parallel_sum" same_as "$serial_sum"
+  assert "$serial_out" matches 'ok 1 - a first passes'
+  assert "$serial_out" matches '1\.\.[0-9]+'
+  assert "$(print -r -- "$serial_out" | cksum)" same_as "$parallel_sum"
 }
 
 @test 'parallel run of passing files exits 0' {
@@ -43,6 +47,16 @@
 @test 'parallel run with failures exits 1' {
   run zsh "$zunit_bin" run --parallel "$fixture/tests/b-mixed.zunit"
 
+  assert $state equals 1
+}
+
+@test 'parallel fail-fast stops the other workers' {
+  rm -f "$fixture/tests-failfast/marker-created"
+
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --fail-fast --parallel tests-failfast"
+
+  assert $state equals 1
+  run test -e "$fixture/tests-failfast/marker-created"
   assert $state equals 1
 }
 
@@ -61,4 +75,13 @@
 
   assert $state equals 0
   assert "$output" matches 'config enabled parallel run passes'
+}
+
+@test 'parallel from .zunit.yml actually runs workers' {
+  # The crash message is only ever printed by the parallel runner, so
+  # it proves the config key really activated parallel mode
+  run zsh -c "cd '$project_root/tests/_support/parallel-config' && zsh '$zunit_bin' run '$fixture/tests-crash/killer.zunit'"
+
+  assert $state equals 1
+  assert "$output" matches 'Parallel worker exited unexpectedly'
 }
