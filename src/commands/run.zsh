@@ -196,7 +196,7 @@ function _zunit_parse_argument() {
 
     # If the argument begins with an underscore, then it
     # should not be run, so we skip it
-    if [[ "${argument:0:1}" = "_" || "$(basename -- "$argument" | cut -c 1)" = "_" ]]; then
+    if [[ "${argument:0:1}" = "_" || "$(print -- ${argument:t} | cut -c 1)" = "_" ]]; then
         return
     fi
 
