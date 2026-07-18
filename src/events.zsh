@@ -102,6 +102,12 @@ function _zunit_success() {
 
     print -Pr "[$(color green bold 'PASS')] $(color cyan \#${#passed}) %B${name}%b"
 } # ]]]
+# FUNCTION: _zunit_verbose_output [[[
+# Print captured test output to screen when --verbose is specified
+function _zunit_verbose_output() {
+    [[ -n $verbose && -n "$1" ]] && echo ${1}
+    return 0
+} # ]]]
 # FUNCTION: _zunit_warn [[[
 # Output a warning message
 function _zunit_warn() {

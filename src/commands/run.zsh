@@ -139,12 +139,12 @@ function _zunit_execute_test() {
             return
         elif [[ -z $allow_risky && $state -eq 248 ]]; then
             # If --verbose is specified, print test output to screen
-            [[ -n $verbose && -n $output ]] && echo $output
+            _zunit_verbose_output "$output"
             _zunit_warn 'No assertions were run, ${name} test considered risky'
             return
         elif [[ -n $allow_risky && $state -eq 248 ]] || [[ $state -eq 0 ]]; then
             # If --verbose is specified, print test output to screen
-            [[ -n $verbose && -n $output ]] && echo $output
+            _zunit_verbose_output "$output"
             _zunit_success
             return
         else
@@ -245,6 +245,7 @@ function _zunit_parse_argument() {
 function _zunit_run() {
     local -a arguments testfiles
     local fail_fast tap allow_risky verbose revolver
+    local parallel _zunit_parallel_child __zunit_parallel_crashed
     local output_text logfile_text output_html logfile_html
 
     # Load the datetime module, and record the start time
@@ -257,6 +258,7 @@ function _zunit_run() {
         f=fail_fast -fail-fast=fail_fast \
         r=revolver -revolver=revolver \
         t=tap -tap=tap \
+        p=parallel -parallel=parallel \
         -allow-risky=allow_risky \
         -output-html=output_html \
         -output-text=output_text \
@@ -341,6 +343,10 @@ function _zunit_run() {
     if [[ -z $verbose ]] && [[ "$zunit_config_verbose" = "true" ]]; then
         verbose=1
     fi
+    # Check if parallel is specified in the config or as an option
+    if [[ -z $parallel ]] && [[ "$zunit_config_parallel" = "true" ]]; then
+        parallel=1
+    fi
     # Check if verbose is specified in the config or as an option
     if [[ -z $revolver ]] && [[ "$zunit_config_revolver" = "true" ]]; then
         # Check for the 'revolver' dependency
@@ -385,9 +391,13 @@ function _zunit_run() {
     local line 
     local -i total
     local -a errors failed passed skipped warnings
-    for testfile in ${(o)testfiles}; do
-        _zunit_run_testfile $testfile
-    done
+    if [[ -n $parallel ]]; then
+        _zunit_parallel_run
+    else
+        for testfile in ${(o)testfiles}; do
+            _zunit_run_testfile $testfile
+        done
+    fi
 
     end_time=$((EPOCHREALTIME*1000))
 
@@ -403,7 +413,7 @@ function _zunit_run() {
     # total, then there must have been failures, errors or warnings,
     # in which case this assertion will return the correct exit code
     # for the test run as a whole
-    [[ $(( $#passed + $#skipped )) -eq $total ]]
+    [[ -z $__zunit_parallel_crashed && $(( $#passed + $#skipped )) -eq $total ]]
 } # ]]]
 # FUNCTION: _zunit_run_testfile [[[
 # Run all tests within a file
@@ -411,13 +421,18 @@ function _zunit_run_testfile() {
     local testbody testname pattern \
         setup teardown
     local -a bits; bits=("${(s/@/)1}")
-    local testfile="${bits[1]}" test_to_run="${bits[2]}" testdir="$(dirname "$testfile")"
+    local testfile="${bits[1]}" test_to_run="${bits[2]}"
+    # Computed in a separate statement so that it refers to the local
+    # $testfile above, not the caller's variable of the same name
+    local testdir="$(dirname "$testfile")"
+    integer __zunit_group="${2:-0}" __zunit_ngroups="${3:-0}"
     local -a lines tests test_names
     tests=()
     test_names=()
 
-    # Update status message
-    print -Pr "%F{blue}==>%f Loading tests in %B${testfile}%b"
+    # Update status message. Parallel workers stay silent - the
+    # parent prints the header while replaying results
+    [[ -z $_zunit_parallel_child ]] && print -Pr "%F{blue}==>%f Loading tests in %B${testfile}%b"
 
     # A regex pattern to match test declarations
     pattern='^ *@test  *([^ ].*)  *\{ *(.*)$'
@@ -538,12 +553,22 @@ function _zunit_run_testfile() {
         fi
     fi
 
-    # Loop through each of the tests and execute it
-    integer i=1
+    # Loop through each of the tests and execute it. When a group is
+    # specified, only the tests within this worker's contiguous slice
+    # of the file are executed
+    integer i=1 __zunit_lo=1 __zunit_hi=${#test_names}
+    if (( __zunit_ngroups > 0 )); then
+        integer __zunit_per=$(( ${#test_names} / __zunit_ngroups ))
+        integer __zunit_rem=$(( ${#test_names} % __zunit_ngroups ))
+        __zunit_lo=$(( (__zunit_group - 1) * __zunit_per + ( (__zunit_group - 1) < __zunit_rem ? (__zunit_group - 1) : __zunit_rem ) + 1 ))
+        __zunit_hi=$(( __zunit_lo + __zunit_per + (__zunit_group <= __zunit_rem ? 1 : 0) - 1 ))
+    fi
     local name body
     for name in "${test_names[@]}"; do
-        body="${tests[$i]}"
-        _zunit_execute_test "$name" "$body"
+        if (( i >= __zunit_lo && i <= __zunit_hi )); then
+            body="${tests[$i]}"
+            _zunit_execute_test "$name" "$body"
+        fi
         i=$(( i + 1 ))
     done
 
@@ -561,6 +586,7 @@ function _zunit_run_usage() {
     echo "$(color yellow 'Options:')"
     echo "  -h, --help             Output help text and exit"
     echo "  -f, --fail-fast        Stop the test runner immediately after the first failure"
+    echo "  -p, --parallel         Run tests in parallel across CPU cores"
     echo "  -r  --revolver         Run tests with revolver spinner"
     echo "  -t, --tap              Output results in a TAP compatible format"
     echo "  -v, --version          Output version information and exit"

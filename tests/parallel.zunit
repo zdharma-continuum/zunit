@@ -1,0 +1,64 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+  fixture="$project_root/tests/_support/parallel"
+}
+
+# Outputs are compared via cksum because they are multi-line strings
+# full of ANSI escapes, which the same_as assertion would otherwise
+# treat as a glob pattern
+
+@test 'parallel output matches serial output for multiple files' {
+  serial_sum=$(cd "$fixture" && zsh "$zunit_bin" run tests 2>&1 | grep -v 'ran in' | cksum)
+  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests 2>&1 | grep -v 'ran in' | cksum)
+
+  assert "$serial_sum" is_not_empty
+  assert "$parallel_sum" same_as "$serial_sum"
+}
+
+@test 'parallel output matches serial output for a single file' {
+  serial_sum=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v 'ran in' | cksum)
+  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests/single-mixed.zunit 2>&1 | grep -v 'ran in' | cksum)
+
+  assert "$serial_sum" is_not_empty
+  assert "$parallel_sum" same_as "$serial_sum"
+}
+
+@test 'parallel TAP output matches serial TAP output' {
+  serial_sum=$(cd "$fixture" && zsh "$zunit_bin" run --tap tests 2>&1 | grep -v 'ran in' | cksum)
+  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --tap --parallel tests 2>&1 | grep -v 'ran in' | cksum)
+
+  assert "$serial_sum" is_not_empty
+  assert "$parallel_sum" same_as "$serial_sum"
+}
+
+@test 'parallel run of passing files exits 0' {
+  run zsh "$zunit_bin" run --parallel "$fixture/tests/a-pass.zunit" "$fixture/tests/c-pass.zunit"
+
+  assert $state equals 0
+}
+
+@test 'parallel run with failures exits 1' {
+  run zsh "$zunit_bin" run --parallel "$fixture/tests/b-mixed.zunit"
+
+  assert $state equals 1
+}
+
+@test 'parallel run reports a crashed worker as an error' {
+  # Run from inside the fixture so no .zunit.yml time limit applies -
+  # with a time limit the test runs one process deeper and the killer
+  # would murder the async wrapper instead of the worker
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --parallel tests-crash/killer.zunit"
+
+  assert $state equals 1
+  assert "$output" matches 'Parallel worker exited unexpectedly'
+}
+
+@test 'parallel can be enabled from .zunit.yml' {
+  run zsh -c "cd '$project_root/tests/_support/parallel-config' && zsh '$zunit_bin' run"
+
+  assert $state equals 0
+  assert "$output" matches 'config enabled parallel run passes'
+}

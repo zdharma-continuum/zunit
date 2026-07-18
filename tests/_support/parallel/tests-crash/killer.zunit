@@ -1,0 +1,7 @@
+#!/usr/bin/env zunit
+
+@test 'kills its own worker' {
+  zmodload zsh/system
+  kill -9 $sysparams[ppid]
+  assert 1 equals 1
+}
