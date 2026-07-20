@@ -4,6 +4,22 @@
   project_root="${testdir:A:h}"
   zunit_bin="$project_root/bin/zunit"
   fixture="$project_root/tests/_support/parallel"
+
+  # The progress bar is only drawn when stderr is a terminal, so
+  # these runs happen on a pseudo terminal. zpty is used rather than
+  # script(1), whose options differ between platforms
+  run_on_tty() {
+    local chunk
+    zmodload zsh/zpty 2>/dev/null || skip 'zsh/zpty is not available'
+
+    zpty zunit_tty "$1"
+    tty_output=''
+    while zpty -r zunit_tty chunk; do tty_output+="$chunk"; done
+    zpty -d zunit_tty
+  }
+
+  # Matches a bar such as '[####----] 6/15  4 passed  1 failed'
+  progress_bar='[0-9]+/[0-9]+  [0-9]+ passed  [0-9]+ failed'
 }
 
 # Outputs are compared via cksum because they are multi-line strings
@@ -75,6 +91,35 @@
 
   assert $state equals 0
   assert "$output" matches 'config enabled parallel run passes'
+}
+
+@test 'parallel run draws a progress bar on a terminal' {
+  run_on_tty "cd '$fixture' && zsh '$zunit_bin' run --parallel tests"
+
+  assert "$tty_output" matches "$progress_bar"
+
+  # The denominator counts every test in the fixture directory
+  assert "$tty_output" matches '/15  [0-9]+ passed'
+
+  # The bar is erased, and the results still print in full
+  assert "$tty_output" matches 'a first passes'
+  assert "$tty_output" matches 'ZUnit Results'
+}
+
+@test 'parallel run progress bar can be disabled with --no-progress' {
+  run_on_tty "cd '$fixture' && zsh '$zunit_bin' run --parallel --no-progress tests"
+
+  assert "$tty_output" does_not_match "$progress_bar"
+  assert "$tty_output" matches 'ZUnit Results'
+}
+
+@test 'parallel run draws no progress bar when output is piped' {
+  # The fixture contains failing tests, so the runner exits non-zero.
+  # Without the `|| true` that status would end the test body early
+  piped_out=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests 2>&1 || true)
+
+  assert "$piped_out" does_not_match "$progress_bar"
+  assert "$piped_out" matches 'ZUnit Results'
 }
 
 @test 'parallel from .zunit.yml actually runs workers' {
