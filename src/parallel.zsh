@@ -41,6 +41,7 @@ function _zunit_parallel_child_init() {
     _zunit_parallel_child=1
     __zunit_parallel_statefile="$1.state"
     __zunit_parallel_abortfile="${1:h}/abort"
+    __zunit_parallel_progressfile="${1:h}/progress"
     __zunit_parallel_fail_fast=$fail_fast
     __zunit_parallel_events=()
 
@@ -102,15 +103,125 @@ function _zunit_parallel_count_tests() {
 
     echo $count
 } # ]]]
+# FUNCTION: _zunit_parallel_progress_clear [[[
+# Erase the progress bar from the terminal. Safe to call more than
+# once, and from the EXIT trap, where the locals of the function
+# which started the run have already gone out of scope
+function _zunit_parallel_progress_clear() {
+    [[ -n $__zunit_parallel_progress ]] || return 0
+
+    __zunit_parallel_progress=''
+    print -nu2 -- $'\r\e[K'
+
+    return 0
+} # ]]]
+# FUNCTION: _zunit_parallel_progress_draw [[[
+# Redraw the progress bar from the ticks which the workers have
+# written to the shared progress file
+function _zunit_parallel_progress_draw() {
+    [[ -n $__zunit_parallel_progress ]] || return 0
+
+    local ticks bar suffix
+    integer width=24 completed=0 passed=0 failed=0 filled=0
+    integer columns=${COLUMNS:-80}
+
+    if [[ -f $__zunit_parallel_progressfile ]]; then
+        ticks="$(<$__zunit_parallel_progressfile)"
+        completed=${#ticks}
+        passed=${#${ticks//[^.]/}}
+        # Errors and failures are both failed tests as far as the
+        # exit code is concerned, so the tally counts them together
+        failed=${#${ticks//[^FE]/}}
+    fi
+
+    # The total is only an estimate, so a run which turns out to be
+    # longer than expected pushes the bar along, rather than
+    # overflowing it
+    (( completed > __zunit_parallel_progress_total )) \
+        && __zunit_parallel_progress_total=$completed
+
+    suffix="] ${completed}/${__zunit_parallel_progress_total}  ${passed} passed  ${failed} failed"
+
+    # Shrink the bar to fit the terminal, leaving the last column
+    # free - a line which wraps cannot be erased with a single
+    # escape sequence
+    (( columns > 0 && width + ${#suffix} + 1 >= columns )) \
+        && width=$(( columns - ${#suffix} - 2 ))
+    (( width < 4 )) && width=4
+
+    (( __zunit_parallel_progress_total > 0 )) \
+        && filled=$(( width * completed / __zunit_parallel_progress_total ))
+    (( filled > width )) && filled=$width
+
+    bar="${(l:$filled::#:):-}${(l:$(( width - filled ))::-:):-}"
+
+    print -nu2 -- $'\r\e[K'"[${bar}${suffix}"
+
+    return 0
+} # ]]]
+# FUNCTION: _zunit_parallel_progress_init [[[
+# Work out whether a progress bar can be drawn, and estimate the
+# number of tests which the run will execute
+function _zunit_parallel_progress_init() {
+    local file
+
+    # These are deliberately global. The EXIT trap which erases the
+    # bar runs after the locals of _zunit_parallel_run have already
+    # been popped, so it cannot see them otherwise
+    typeset -g __zunit_parallel_progress=''
+    typeset -g __zunit_parallel_progress_total=0
+
+    # The bar is a terminal affordance. It is skipped when stderr is
+    # not a terminal, so that piped output and report files stay
+    # byte for byte identical to a serial run, and when TAP output
+    # has been requested, since that is a machine readable format
+    [[ -t 2 && -z $tap && -z $no_progress ]] || return 0
+
+    for file in "$@"; do
+        if [[ -n ${${(s/@/)file}[2]} ]]; then
+            # Only a single named test will run from this file
+            (( __zunit_parallel_progress_total++ ))
+        else
+            (( __zunit_parallel_progress_total += \
+                $(_zunit_parallel_count_tests "${${(s/@/)file}[1]}") ))
+        fi
+    done
+
+    (( __zunit_parallel_progress_total > 0 )) || return 0
+
+    __zunit_parallel_progress=1
+    : >| "$__zunit_parallel_progressfile"
+
+    _zunit_parallel_progress_draw
+} # ]]]
 # FUNCTION: _zunit_parallel_record [[[
 # Record a result event, preserving the current test name
 # and test count at the time of the event. Each field is quoted
 # before joining so payloads containing the separator byte survive
 function _zunit_parallel_record() {
+    local tick
     local -a fields
     fields=("$1" "$name" "$total" "${(@)@:2}")
 
     __zunit_parallel_events+=("${(pj:\x1f:)${(@q+)fields}}")
+
+    # Append a single character per completed test to the shared
+    # progress file, so that the parent can count results while the
+    # workers are still running. Single byte appends are atomic, so
+    # the workers need no locking between them. Verbose output is
+    # not a test result, so it does not get a tick
+    case "$1" in
+        success ) tick='.' ;;
+        failure ) tick='F' ;;
+        error )   tick='E' ;;
+        skip )    tick='S' ;;
+        warn )    tick='W' ;;
+    esac
+
+    [[ -n $tick && -n $__zunit_parallel_progress ]] \
+        && print -n -- "$tick" >> "$__zunit_parallel_progressfile"
+
+    return 0
 } # ]]]
 # FUNCTION: _zunit_parallel_replay [[[
 # Replay a worker's recorded events through the real event handlers
@@ -162,7 +273,7 @@ function _zunit_parallel_run() {
     local __zunit_parallel_file __zunit_parallel_prev
     local -a __zunit_parallel_ordered __zunit_parallel_args
     local -a __zunit_parallel_groups __zunit_parallel_ngroups
-    local -a __zunit_parallel_pids
+    local -a __zunit_parallel_pids __zunit_parallel_spawned
 
     __zunit_parallel_ordered=(${(o)testfiles})
     (( ${#__zunit_parallel_ordered} > 0 )) || return 0
@@ -174,9 +285,17 @@ function _zunit_parallel_run() {
         exit 1
     fi
 
+    typeset -g __zunit_parallel_progressfile="$__zunit_parallel_tmpdir/progress"
+
     # Clean the temporary directory up on exit, and make fatal
-    # signals exit the shell so the EXIT trap still runs
-    trap "rm -rf ${(q)__zunit_parallel_tmpdir}" EXIT
+    # signals exit the shell so the EXIT trap still runs. Erasing
+    # the bar leaves the cursor on a clean line when a run is
+    # interrupted or shut down early by --fail-fast.
+    #
+    # The order matters: a `return` inside a function called from a
+    # trap returns from the trap itself, abandoning everything after
+    # it, so the cleanup has to come before the call
+    trap "rm -rf ${(q)__zunit_parallel_tmpdir}; _zunit_parallel_progress_clear" EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
     trap 'exit 129' HUP
@@ -201,6 +320,8 @@ function _zunit_parallel_run() {
         done
     fi
 
+    _zunit_parallel_progress_init "${__zunit_parallel_ordered[@]}"
+
     # Spawn a worker subshell per unit, never running more
     # than $__zunit_parallel_max workers at once
     for (( __zunit_parallel_k=1; __zunit_parallel_k <= ${#__zunit_parallel_args}; __zunit_parallel_k++ )); do
@@ -217,12 +338,23 @@ function _zunit_parallel_run() {
             _zunit_parallel_child_finish
         ) > "$__zunit_parallel_tmpdir/$__zunit_parallel_k.log" 2>&1 &
         __zunit_parallel_pids+=($!)
+        __zunit_parallel_spawned+=($!)
+
+        _zunit_parallel_progress_draw
     done
+
+    # While a bar is being drawn, wait by polling so that it keeps
+    # moving. Without one there is nothing to redraw, so the shell
+    # blocks in wait instead of waking up ten times a second
+    [[ -n $__zunit_parallel_progress ]] && _zunit_parallel_wait_slot 1
 
     # Wait for the tracked workers only - a bare wait would also
     # block on any background process left behind by a bootstrap
     # script sourced into this shell
-    (( ${#__zunit_parallel_pids} )) && wait "${__zunit_parallel_pids[@]}"
+    (( ${#__zunit_parallel_spawned} )) && wait "${__zunit_parallel_spawned[@]}"
+
+    # Results are printed from here on, so the bar has to go
+    _zunit_parallel_progress_clear
 
     # Replay each worker's recorded events, in the order a serial
     # run would have produced them. Under --fail-fast the replay of
@@ -262,6 +394,8 @@ function _zunit_parallel_wait_slot() {
         __zunit_parallel_pids=($alive)
 
         if (( ${#__zunit_parallel_pids} >= max_procs )); then
+            _zunit_parallel_progress_draw
+
             if (( $+builtins[zselect] )); then
                 zselect -t 10 2>/dev/null
             else

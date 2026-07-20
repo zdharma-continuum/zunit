@@ -245,7 +245,7 @@ function _zunit_parse_argument() {
 function _zunit_run() {
     local -a arguments testfiles
     local fail_fast tap allow_risky verbose revolver
-    local parallel _zunit_parallel_child
+    local parallel no_progress _zunit_parallel_child
     local output_text logfile_text output_html logfile_html
 
     # Load the datetime module, and record the start time
@@ -260,6 +260,7 @@ function _zunit_run() {
         t=tap -tap=tap \
         p=parallel -parallel=parallel \
         -allow-risky=allow_risky \
+        -no-progress=no_progress \
         -output-html=output_html \
         -output-text=output_text \
         -time-limit:=time_limit \
@@ -346,6 +347,11 @@ function _zunit_run() {
     # Check if parallel is specified in the config or as an option
     if [[ -z $parallel ]] && [[ "$zunit_config_parallel" = "true" ]]; then
         parallel=1
+    fi
+    # Check if the progress bar has been disabled in the config
+    # or as an option
+    if [[ -z $no_progress ]] && [[ "$zunit_config_progress" = "false" ]]; then
+        no_progress=1
     fi
     # Check if verbose is specified in the config or as an option
     if [[ -z $revolver ]] && [[ "$zunit_config_revolver" = "true" ]]; then
@@ -607,6 +613,7 @@ function _zunit_run_usage() {
     echo "  -t, --tap              Output results in a TAP compatible format"
     echo "  -v, --version          Output version information and exit"
     echo "      --allow-risky      Supress warnings generated for risky tests"
+    echo "      --no-progress      Disable the progress bar during parallel runs"
     echo "      --output-html      Print results to a HTML page"
     echo "      --output-text      Print results to a text log, in TAP compatible format"
     echo "      --time-limit <n>   Set a time limit of n seconds for each test"

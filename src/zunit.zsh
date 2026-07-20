@@ -24,6 +24,7 @@ function _zunit_usage() {
     echo "  -t, --tap          Output results in a TAP compatible format"
     echo "  -v, --version      Output version information and exit"
     echo "      --allow-risky  Supress warnings generated for risky tests"
+    echo "      --no-progress  Disable the progress bar during parallel runs"
     echo "      --output-html  Print results to a HTML page"
     echo "      --output-text  Print results to a text log, in TAP compatible format"
     echo "      --time-limit   Set a time limit in seconds for each test"
