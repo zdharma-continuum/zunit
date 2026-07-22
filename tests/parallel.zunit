@@ -101,6 +101,10 @@
 
   assert $state equals 1
   assert "$output" matches 'Parallel worker exited unexpectedly'
+
+  # The killed test never reports a result of its own - the worker
+  # died before it could write one
+  assert "$output" matches 'Passed.*: 0/1'
 }
 
 @test 'parallel can be enabled from .zunit.yml' {

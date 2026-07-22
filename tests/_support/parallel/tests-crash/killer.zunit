@@ -2,6 +2,19 @@
 
 @test 'kills its own worker' {
   zmodload zsh/system
+
+  # This fixture is only meaningful inside a parallel worker. Run
+  # serially, $sysparams[ppid] is the runner itself, and under a time
+  # limit the async wrapper sits in between, so the kill would land on
+  # the wrong process. Both are checked while the worker is still
+  # alive to report a failure
+  assert "${_zunit_parallel_child:-not a parallel worker}" same_as 1
+  assert "${time_limit:-0}" equals 0
+
   kill -9 $sysparams[ppid]
-  assert 1 equals 1
+
+  # Only reached when the worker survived. This process is orphaned
+  # and writing to a dead pipe, so nothing it says can be reported -
+  # but if the kill missed, the worker is still there to record it
+  fail 'the worker survived SIGKILL'
 }
