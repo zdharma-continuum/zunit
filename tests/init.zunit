@@ -1,0 +1,90 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+
+  # Each test bootstraps a throwaway project, since `zunit init`
+  # refuses to overwrite anything it finds already in place
+  project_dir="$(mktemp -d "${TMPDIR:-/tmp}/zunit-init.XXXXXXXX")"
+  zsh -c "cd '$project_dir' && zsh '$zunit_bin' init" >/dev/null 2>&1
+
+  config="$project_dir/.zunit.yml"
+}
+
+@teardown {
+  [[ -n $project_dir ]] && rm -rf "$project_dir"
+}
+
+@test 'generated config declares every supported key' {
+  # grep -x anchors the whole line, so a key which has drifted out of
+  # column one is not matched. The parser reads nesting from
+  # indentation, and an indented top level key is loaded under the
+  # name of the key above it, leaving the runner with a name it never
+  # looks for
+  for key in tap directories time_limit fail_fast allow_risky \
+    parallel progress verbose revolver; do
+    run grep -qxE "${key}:.*" "$config"
+    assert $state equals 0
+  done
+}
+
+@test 'generated config nests the directories keys' {
+  # Two spaces of indent put these one level below `directories`,
+  # which is where the runner reads them from
+  for key in tests output support; do
+    run grep -qxE "  ${key}: .+" "$config"
+    assert $state equals 0
+  done
+}
+
+@test 'generated config is honoured by the runner' {
+  # Moving the tests somewhere the default would not look proves the
+  # nested `directories` keys were parsed, rather than the runner
+  # falling back to its built-in 'tests' default
+  mkdir -p "$project_dir/suite"
+  mv "$project_dir/tests/example.zunit" "$project_dir/suite/example.zunit"
+  sed 's|  tests: tests|  tests: suite|' "$config" > "$config.1"
+  mv "$config.1" "$config"
+
+  run zsh -c "cd '$project_dir' && zsh '$zunit_bin' run"
+
+  # The file header is emphasised, so an escape sequence sits between
+  # 'in' and the path - only the path itself is matched here
+  assert "$output" matches 'suite/example.zunit'
+  assert "$output" does_not_match 'tests/example.zunit'
+  assert "$output" matches 'Sourced bootstrap script tests/_support/bootstrap'
+}
+
+@test 'generated example test is parsed by the runner' {
+  run zsh "$zunit_bin" run "$project_dir/tests/example.zunit"
+
+  # The example asserts that 'true' is the same as 'false', so it
+  # fails by design - what matters here is that the file parsed
+  assert "$output" matches 'Example'
+  assert "$output" does_not_match 'Failed to parse'
+}
+
+@test 'generated files start in column one' {
+  # The runner ends a test body at a line which is exactly '}', and
+  # will not recognise a shebang which is indented
+  run grep -qx '#!/usr/bin/env zunit' "$project_dir/tests/example.zunit"
+  assert $state equals 0
+
+  run grep -qx '}' "$project_dir/tests/example.zunit"
+  assert $state equals 0
+
+  run grep -qx '#!/usr/bin/env zsh' "$project_dir/tests/_support/bootstrap"
+  assert $state equals 0
+}
+
+@test 'generated travis config nests its keys correctly' {
+  run zsh -c "cd '$project_dir' && zsh '$zunit_bin' init --travis"
+  assert $state equals 0
+
+  run grep -qx 'script: zunit' "$project_dir/.travis.yml"
+  assert $state equals 0
+
+  run grep -qx '  - mkdir .bin' "$project_dir/.travis.yml"
+  assert $state equals 0
+}
