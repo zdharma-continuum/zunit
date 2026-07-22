@@ -105,7 +105,27 @@ function _zunit_success() {
 # FUNCTION: _zunit_verbose_output [[[
 # Print captured test output to screen when --verbose is specified
 function _zunit_verbose_output() {
-    [[ -n $verbose && -n "$1" ]] && echo ${1}
+    local line
+
+    [[ -n $verbose && -n "$1" ]] || return 0
+
+    # Every line is indented, so that captured output reads as part of
+    # the result printed above it. Without the indent, a test which
+    # runs zunit itself prints a whole results table of its own, and
+    # there is nothing to say it does not belong to this run.
+    #
+    # Under TAP the same lines are marked as diagnostics instead, so
+    # that a verbose run still produces a parseable stream. `print -r`
+    # is used rather than `echo`, which would interpret backslash
+    # escapes in the captured output
+    for line in "${(@f)1}"; do
+        if [[ -n $tap ]]; then
+            print -r -- "# $line"
+        else
+            print -r -- "  $line"
+        fi
+    done
+
     return 0
 } # ]]]
 # FUNCTION: _zunit_warn [[[

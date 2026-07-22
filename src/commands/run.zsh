@@ -138,14 +138,14 @@ function _zunit_execute_test() {
             _zunit_error $output
             return
         elif [[ -z $allow_risky && $state -eq 248 ]]; then
-            # If --verbose is specified, print test output to screen
-            _zunit_verbose_output "$output"
+            # The result is printed first, so that the output which
+            # --verbose indents beneath it is attributed to this test
             _zunit_warn 'No assertions were run, ${name} test considered risky'
+            _zunit_verbose_output "$output"
             return
         elif [[ -n $allow_risky && $state -eq 248 ]] || [[ $state -eq 0 ]]; then
-            # If --verbose is specified, print test output to screen
-            _zunit_verbose_output "$output"
             _zunit_success
+            _zunit_verbose_output "$output"
             return
         else
             _zunit_failure $output

@@ -1,0 +1,66 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+  fixture="$project_root/tests/_support/verbose"
+
+  # The index of the first line of $lines which matches a pattern, or
+  # 0 when nothing matches. Used to check the order in which the
+  # runner printed two things
+  line_index() {
+    local i=1 line
+    for line in "${lines[@]}"; do
+      [[ "$line" = ${~1} ]] && echo $i && return 0
+      i=$(( i + 1 ))
+    done
+    echo 0
+  }
+}
+
+@test 'captured output is indented beneath its result' {
+  run zsh "$zunit_bin" run --verbose "$fixture"
+
+  assert "$output" matches '  first line'
+  assert "$output" matches '  second line'
+}
+
+@test 'captured output follows the result it belongs to' {
+  run zsh "$zunit_bin" run --verbose "$fixture"
+
+  # The result line names the test, and the output it captured is
+  # printed after it - the other way round leaves the block orphaned
+  # above the name of the test which produced it
+  integer result=$(line_index '*talks while passing*')
+  integer captured=$(line_index '*first line*')
+
+  assert $result is_greater_than 0
+  assert $captured is_greater_than $result
+}
+
+@test 'captured output is hidden without --verbose' {
+  run zsh "$zunit_bin" run "$fixture"
+
+  assert $state equals 0
+  assert "$output" does_not_match 'first line'
+}
+
+@test 'verbose parallel output matches verbose serial output' {
+  serial_out=$(zsh "$zunit_bin" run --verbose "$fixture" 2>&1 | grep -v 'ran in')
+  parallel_sum=$(zsh "$zunit_bin" run --verbose --parallel "$fixture" 2>&1 | grep -v 'ran in' | cksum)
+
+  assert "$serial_out" matches 'talks while passing'
+  assert "$(print -r -- "$serial_out" | cksum)" same_as "$parallel_sum"
+}
+
+@test 'verbose output is marked as a diagnostic under --tap' {
+  run zsh "$zunit_bin" run --verbose --tap "$fixture"
+
+  assert $state equals 0
+
+  # Captured output is prefixed rather than indented, so that a TAP
+  # parser reads it as a diagnostic instead of choking on it
+  assert "$output" matches '# first line'
+  assert "$output" matches '# second line'
+  assert "$output" does_not_match '  first line'
+}
