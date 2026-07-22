@@ -35,8 +35,11 @@ function _zunit_parallel_child_finish() {
 # Prepare a worker subshell: replace the event handlers with
 # recorders, and disable all reporting output
 function _zunit_parallel_child_init() {
-    # Make sure the parent's cleanup trap is not inherited
+    # Make sure the parent's traps are not inherited. A worker which
+    # kept the resize handler would paint a progress bar into its own
+    # log file every time the window changed size
     trap - EXIT
+    trap - WINCH
 
     _zunit_parallel_child=1
     __zunit_parallel_statefile="$1.state"
@@ -104,14 +107,53 @@ function _zunit_parallel_count_tests() {
     echo $count
 } # ]]]
 # FUNCTION: _zunit_parallel_progress_clear [[[
-# Erase the progress bar from the terminal. Safe to call more than
-# once, and from the EXIT trap, where the locals of the function
-# which started the run have already gone out of scope
+# Erase the progress bar and hand the terminal back in the state it
+# was found in. Safe to call more than once, and from the EXIT trap,
+# where the locals of the function which started the run have already
+# gone out of scope
 function _zunit_parallel_progress_clear() {
     [[ -n $__zunit_parallel_progress ]] || return 0
 
     __zunit_parallel_progress=''
-    print -nu2 -- $'\r\e[K'
+    __zunit_parallel_progress_last=''
+    trap - WINCH
+
+    # Erase the bar, then give the cursor back
+    print -nu2 -- $'\r\e[K\e[?25h'
+
+    # Restore the terminal mode the run started with. SIGTTOU is
+    # ignored while the settings are written, so that a runner which
+    # has been backgrounded is not stopped by its own stty
+    if [[ -n $__zunit_parallel_progress_stty ]]; then
+        trap '' TTOU
+        stty "$__zunit_parallel_progress_stty" <&2 2>/dev/null
+        trap - TTOU
+        __zunit_parallel_progress_stty=''
+    fi
+
+    return 0
+} # ]]]
+# FUNCTION: _zunit_parallel_progress_columns [[[
+# Measure the width of the terminal the bar is drawn on. $COLUMNS is
+# only a fallback: a non interactive shell does not refresh it while
+# the run is in progress, so a window which is resized mid run leaves
+# it stale, and a bar drawn to a stale width wraps. A wrapped line
+# cannot be erased with a single escape sequence, so every redraw
+# after it strands another copy on the screen
+function _zunit_parallel_progress_columns() {
+    local -a size
+    integer cols=0
+
+    size=(${=$(stty size <&2 2>/dev/null)})
+    cols=${size[2]:-0}
+
+    # Each fallback is only reached when the one before it has
+    # nothing to say - a pseudo terminal created by zpty, for
+    # example, reports no window size at all
+    (( cols > 0 )) || cols=${COLUMNS:-0}
+    (( cols > 0 )) || cols=80
+
+    typeset -g __zunit_parallel_progress_cols=$cols
 
     return 0
 } # ]]]
@@ -121,9 +163,9 @@ function _zunit_parallel_progress_clear() {
 function _zunit_parallel_progress_draw() {
     [[ -n $__zunit_parallel_progress ]] || return 0
 
-    local ticks bar suffix
+    local ticks bar suffix line
     integer width=24 completed=0 passed=0 failed=0 filled=0
-    integer columns=${COLUMNS:-80}
+    integer columns
 
     if [[ -f $__zunit_parallel_progressfile ]]; then
         ticks="$(<$__zunit_parallel_progressfile)"
@@ -133,6 +175,20 @@ function _zunit_parallel_progress_draw() {
         # exit code is concerned, so the tally counts them together
         failed=${#${ticks//[^FE]/}}
     fi
+
+    # Measure the terminal whenever a worker has reported something
+    # new, because that is what is about to be put on the screen, and
+    # a bar drawn to a width the window has already moved away from
+    # wraps. Every tenth poll is measured as well, roughly once a
+    # second, to catch a resize which the handler never saw - a
+    # runner in the background is sent no SIGWINCH at all
+    (( __zunit_parallel_progress_poll = (__zunit_parallel_progress_poll + 1) % 10 ))
+    if [[ "$ticks" != "$__zunit_parallel_progress_seen" ]] \
+        || (( ! __zunit_parallel_progress_poll )); then
+        typeset -g __zunit_parallel_progress_seen="$ticks"
+        _zunit_parallel_progress_columns
+    fi
+    columns=$__zunit_parallel_progress_cols
 
     # The total is only an estimate, so a run which turns out to be
     # longer than expected pushes the bar along, rather than
@@ -147,15 +203,31 @@ function _zunit_parallel_progress_draw() {
     # escape sequence
     (( columns > 0 && width + ${#suffix} + 1 >= columns )) \
         && width=$(( columns - ${#suffix} - 2 ))
-    (( width < 4 )) && width=4
 
-    (( __zunit_parallel_progress_total > 0 )) \
-        && filled=$(( width * completed / __zunit_parallel_progress_total ))
-    (( filled > width )) && filled=$width
+    if (( width < 4 )); then
+        # There is no room for a bar worth drawing, and the counts
+        # are worth more than four characters of one, so the bar is
+        # dropped rather than squeezed
+        line="${suffix#\] }"
+    else
+        (( __zunit_parallel_progress_total > 0 )) \
+            && filled=$(( width * completed / __zunit_parallel_progress_total ))
+        (( filled > width )) && filled=$width
 
-    bar="${(l:$filled::#:):-}${(l:$(( width - filled ))::-:):-}"
+        bar="${(l:$filled::#:):-}${(l:$(( width - filled ))::-:):-}"
+        line="[${bar}${suffix}"
+    fi
 
-    print -nu2 -- $'\r\e[K'"[${bar}${suffix}"
+    # The last resort. Whatever the width was measured as, the line
+    # is never allowed to reach the final column of the terminal
+    (( columns > 0 && ${#line} >= columns )) && line="${line[1,columns-1]}"
+
+    # Redrawing a bar which has not changed only adds noise to
+    # scrollback and to captured output
+    [[ "$line" == "$__zunit_parallel_progress_last" ]] && return 0
+    typeset -g __zunit_parallel_progress_last="$line"
+
+    print -nu2 -- $'\r\e[K'"$line"
 
     return 0
 } # ]]]
@@ -170,6 +242,10 @@ function _zunit_parallel_progress_init() {
     # been popped, so it cannot see them otherwise
     typeset -g __zunit_parallel_progress=''
     typeset -g __zunit_parallel_progress_total=0
+    typeset -g __zunit_parallel_progress_last=''
+    typeset -g __zunit_parallel_progress_seen=''
+    typeset -g __zunit_parallel_progress_stty=''
+    typeset -gi __zunit_parallel_progress_poll=0
 
     # The bar is a terminal affordance. It is skipped when stderr is
     # not a terminal, so that piped output and report files stay
@@ -191,6 +267,25 @@ function _zunit_parallel_progress_init() {
 
     __zunit_parallel_progress=1
     : >| "$__zunit_parallel_progressfile"
+
+    _zunit_parallel_progress_columns
+
+    # Keep the bar on a line of its own. With echo left on, a newline
+    # typed while the run is in progress scrolls the bar up the
+    # screen, and every redraw which follows lands on a new line,
+    # leaving a stack of stale bars behind. The mode is restored by
+    # _zunit_parallel_progress_clear, which the EXIT trap reaches
+    # even when the run is interrupted
+    trap '' TTOU
+    __zunit_parallel_progress_stty="$(stty -g <&2 2>/dev/null)"
+    [[ -n $__zunit_parallel_progress_stty ]] && stty -echo <&2 2>/dev/null
+    trap - TTOU
+
+    # Follow the window for as long as the bar is being drawn
+    trap '_zunit_parallel_progress_columns; _zunit_parallel_progress_draw' WINCH
+
+    # Hide the cursor rather than leave it blinking at the end of the bar
+    print -nu2 -- $'\e[?25l'
 
     _zunit_parallel_progress_draw
 } # ]]]

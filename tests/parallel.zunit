@@ -4,18 +4,35 @@
   project_root="${testdir:A:h}"
   zunit_bin="$project_root/bin/zunit"
   fixture="$project_root/tests/_support/parallel"
+  slow_fixture="$project_root/tests/_support/parallel-slow"
 
   # The progress bar is only drawn when stderr is a terminal, so
   # these runs happen on a pseudo terminal. zpty is used rather than
-  # script(1), whose options differ between platforms
+  # script(1), whose options differ between platforms. The second
+  # argument is passed to zpty, so that a test which cares about the
+  # terminal mode can ask for one which echoes its input
   run_on_tty() {
     local chunk
     zmodload zsh/zpty 2>/dev/null || skip 'zsh/zpty is not available'
 
-    zpty zunit_tty "$1"
+    zpty ${2:-} zunit_tty "$1"
     tty_output=''
     while zpty -r zunit_tty chunk; do tty_output+="$chunk"; done
     zpty -d zunit_tty
+  }
+
+  # Collect each version of the bar which was drawn to the terminal
+  # during the last run_on_tty. A redraw starts by returning to the
+  # first column, so the output is split on carriage returns and
+  # newlines, and the escape sequences are stripped so that what is
+  # left is what the terminal actually displayed
+  progress_bars() {
+    local -a segments
+    setopt local_options extended_glob
+
+    segments=(${(ps:\r:)${tty_output//$'\n'/$'\r'}})
+    segments=(${segments//$'\e['[0-9?]#[a-zA-Z]/})
+    bars=(${(M)segments:#*passed*})
   }
 
   # Matches a bar such as '[####----] 6/15  4 passed  1 failed'
@@ -111,6 +128,62 @@
 
   assert "$tty_output" does_not_match "$progress_bar"
   assert "$tty_output" matches 'ZUnit Results'
+}
+
+@test 'parallel progress bar follows a terminal resize' {
+  # zpty gives its terminal no window size, so the run starts out
+  # drawing to the fallback width. Narrowing the terminal while the
+  # run is in progress has to shrink the bar - a bar which is wider
+  # than the terminal wraps, and a wrapped line cannot be erased, so
+  # every redraw after it leaves a copy of itself on the screen
+  run_on_tty "cd '$slow_fixture' && { sleep 1; stty columns 30 <&2 } & zsh '$zunit_bin' run --parallel tests"
+
+  progress_bars
+  assert ${#bars} is_greater_than 0
+
+  integer narrowest=999
+  for bar in $bars; do
+    (( ${#bar} < narrowest )) && narrowest=${#bar}
+  done
+
+  assert $narrowest is_less_than 30
+}
+
+@test 'parallel progress bar never fills the last column' {
+  # No window size is reported by zpty, so the width comes from
+  # $COLUMNS here
+  COLUMNS=40 run_on_tty "cd '$fixture' && zsh '$zunit_bin' run --parallel tests"
+
+  progress_bars
+  assert ${#bars} is_greater_than 0
+
+  for bar in $bars; do
+    assert ${#bar} is_less_than 40
+  done
+}
+
+@test 'parallel progress bar is not redrawn when nothing has changed' {
+  run_on_tty "cd '$fixture' && zsh '$zunit_bin' run --parallel tests"
+
+  progress_bars
+  assert ${#bars} is_greater_than 0
+
+  integer i
+  for (( i = 2; i <= ${#bars}; i++ )); do
+    assert "${bars[$i]}" different_to "${bars[$i - 1]}"
+  done
+}
+
+@test 'terminal echo is restored after a parallel run' {
+  # The bar turns echo off, so that a newline typed during the run
+  # cannot scroll it up the screen. zpty only echoes input when it is
+  # asked to, so the -e option is what gives this test something to
+  # check. The fixture contains failing tests, and without the
+  # `|| true` that status would stop the terminal from being examined
+  run_on_tty "cd '$fixture' && { zsh '$zunit_bin' run --parallel tests >/dev/null 2>&1 || true }; stty -a <&2 | tr ' ' '\n' | grep -x -e echo -e '-echo'" -e
+
+  # The terminal ends every line it writes with a carriage return
+  assert "${tty_output//[$'\r\n']/}" same_as 'echo'
 }
 
 @test 'parallel run draws no progress bar when output is piped' {
