@@ -609,7 +609,7 @@ function _zunit_run_usage() {
     echo "  -h, --help             Output help text and exit"
     echo "  -f, --fail-fast        Stop the test runner immediately after the first failure"
     echo "  -p, --parallel         Run tests in parallel across CPU cores"
-    echo "  -r  --revolver         Run tests with revolver spinner"
+    echo "  -r, --revolver         Run tests with revolver spinner"
     echo "  -t, --tap              Output results in a TAP compatible format"
     echo "  -v, --version          Output version information and exit"
     echo "      --allow-risky      Supress warnings generated for risky tests"

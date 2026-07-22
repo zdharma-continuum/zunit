@@ -1,0 +1,63 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+  completion_file="$project_root/_zunit"
+  completion="$(<$completion_file)"
+
+  # Every option the CLI accepts, gathered from the usage text of both
+  # commands. The colour escapes are stripped first, so that a line
+  # which the reporter has painted still parses
+  usage_text() {
+    { zsh "$zunit_bin" run --help; zsh "$zunit_bin" init --help } 2>&1 \
+      | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g'
+  }
+}
+
+@test 'the completion file is valid zsh' {
+  run zsh -n "$completion_file"
+
+  assert $state equals 0
+  assert "$output" is_empty
+}
+
+@test 'completion offers every option the CLI accepts' {
+  local -a options
+  options=(${(f)"$(usage_text | grep -oE -- '--[a-z-]+' | sort -u)"})
+
+  assert ${#options} is_greater_than 0
+  for option in $options; do
+    assert "$completion" contains "$option"
+  done
+}
+
+@test 'completion offers no option the CLI rejects' {
+  local -a options usage
+  options=(${(f)"$(grep -oE -- '--[a-z-]+' "$completion_file" | sort -u)"})
+  usage="$(usage_text)"
+
+  assert ${#options} is_greater_than 0
+  for option in $options; do
+    assert "$usage" contains "$option"
+  done
+}
+
+@test 'completion pairs every short option with its long form' {
+  # A usage line reads '  -f, --fail-fast    Stop the test runner...',
+  # which is rewritten here into the '{-f,--fail-fast}' form the
+  # completion declares its option pairs in
+  local -a pairs
+  pairs=(${(f)"$(usage_text | sed -nE 's/^  (-[a-z]), (--[a-z-]+).*/{\1,\2}/p' | sort -u)"})
+
+  assert ${#pairs} is_greater_than 0
+  for pair in $pairs; do
+    assert "$completion" contains "$pair"
+  done
+}
+
+@test 'completion knows --time-limit takes an argument' {
+  # The trailing '=' is what makes both '--time-limit 5' and
+  # '--time-limit=5' complete a value
+  assert "$completion" contains '--time-limit=['
+}
