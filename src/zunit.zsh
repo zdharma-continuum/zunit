@@ -27,6 +27,7 @@ function _zunit_usage() {
     echo "      --no-progress  Disable the progress bar during parallel runs"
     echo "      --output-html  Print results to a HTML page"
     echo "      --output-text  Print results to a text log, in TAP compatible format"
+    echo "      --slice        Split a single test file's tests across workers"
     echo "      --time-limit   Set a time limit in seconds for each test"
     echo "      --verbose      Prints full output from each test"
 } # ]]]

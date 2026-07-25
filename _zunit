@@ -19,6 +19,7 @@ _zunit() {
     '--no-progress[disable the progress bar during parallel runs]'
     '--output-html[print results to a HTML page]'
     '--output-text[print results to a text log, in TAP compatible format]'
+    "--slice[split a single test file's tests across workers]"
     '--time-limit=[set a time limit in seconds for each test]:seconds:'
     '--verbose[prints full output from each test]'
   )

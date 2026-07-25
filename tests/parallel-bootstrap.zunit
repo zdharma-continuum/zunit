@@ -44,7 +44,7 @@
     || cores=2
   (( cores >= 2 )) || skip 'needs at least two cores'
 
-  run zsh -c "cd '$fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run --parallel tests/alpha.zunit"
+  run zsh -c "cd '$fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run --parallel --slice tests/alpha.zunit"
 
   assert $state equals 0
   assert $(sourced_shells) equals 2

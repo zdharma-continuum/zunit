@@ -55,6 +55,7 @@ time_limit: 0
 fail_fast: false
 allow_risky: false
 parallel: false
+parallel_slice: false
 progress: true
 verbose: false
 revolver: false"

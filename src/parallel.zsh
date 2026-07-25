@@ -395,10 +395,14 @@ function _zunit_parallel_run() {
     trap 'exit 143' TERM
     trap 'exit 129' HUP
 
-    # Build the list of work units. Each unit is either a whole test
-    # file, or a contiguous slice of the tests in a single file, with
-    # no more slices than the file has tests
-    if (( ${#__zunit_parallel_ordered} == 1 )); then
+    # Build the list of work units. A unit is a whole test file: the
+    # tests in one file run in the order they are declared, and share
+    # whatever state they leave on disk, so splitting them apart
+    # changes what the file means. When a single file is queued and
+    # slicing has been asked for, that file is split instead into
+    # contiguous slices of its tests, with no more slices than it has
+    # tests - only sound for a file whose tests are independent
+    if (( ${#__zunit_parallel_ordered} == 1 )) && [[ -n $parallel_slice ]]; then
         __zunit_parallel_slices=$(_zunit_parallel_count_tests "${${(s/@/)__zunit_parallel_ordered[1]}[1]}")
         (( __zunit_parallel_slices > __zunit_parallel_max )) && __zunit_parallel_slices=$__zunit_parallel_max
 

@@ -245,7 +245,7 @@ function _zunit_parse_argument() {
 function _zunit_run() {
     local -a arguments testfiles
     local fail_fast tap allow_risky verbose revolver
-    local parallel no_progress _zunit_parallel_child __zunit_parallel_bootstrap
+    local parallel parallel_slice no_progress _zunit_parallel_child __zunit_parallel_bootstrap
     local output_text logfile_text output_html logfile_html
 
     # Load the datetime module, and record the start time
@@ -261,6 +261,7 @@ function _zunit_run() {
         p=parallel -parallel=parallel \
         -allow-risky=allow_risky \
         -no-progress=no_progress \
+        -slice=parallel_slice \
         -output-html=output_html \
         -output-text=output_text \
         -time-limit:=time_limit \
@@ -323,6 +324,15 @@ function _zunit_run() {
     if [[ -z $parallel ]] && [[ "$zunit_config_parallel" = "true" ]]; then
         parallel=1
     fi
+    # Splitting one file's tests across workers is opt-in. The tests in
+    # a file run in the order they are declared, and share whatever
+    # state they leave on disk, so a file is a single unit of work
+    # unless slicing has been asked for
+    if [[ -z $parallel_slice ]] && [[ "$zunit_config_parallel_slice" = "true" ]]; then
+        parallel_slice=1
+    fi
+    # There is nothing to slice a file across without parallel workers
+    [[ -n $parallel_slice ]] && parallel=1
     if [[ -n $zunit_config_directories_support ]]; then
         # Check that the support directory exists
         local support="$zunit_config_directories_support"
@@ -627,6 +637,7 @@ function _zunit_run_usage() {
     echo "      --no-progress      Disable the progress bar during parallel runs"
     echo "      --output-html      Print results to a HTML page"
     echo "      --output-text      Print results to a text log, in TAP compatible format"
+    echo "      --slice            Split a single test file's tests across workers"
     echo "      --time-limit <n>   Set a time limit of n seconds for each test"
     echo "      --verbose          Prints full output from each test"
 } # ]]]
