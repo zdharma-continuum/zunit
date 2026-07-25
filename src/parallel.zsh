@@ -427,6 +427,23 @@ function _zunit_parallel_run() {
         _zunit_parallel_wait_slot $__zunit_parallel_max
         (
             _zunit_parallel_child_init "$__zunit_parallel_tmpdir/$__zunit_parallel_k"
+
+            # Each worker builds its own environment from the
+            # bootstrap script, so nothing the script creates is
+            # shared between workers. It is sourced right here rather
+            # than inside one of the helper functions, because source
+            # runs the script in the enclosing function scope - a
+            # variable the script declares with a bare typeset would
+            # become a local of that helper, gone before the tests run
+            if [[ -n $__zunit_parallel_bootstrap ]] && \
+                ! source "$__zunit_parallel_bootstrap"; then
+                name='bootstrap'
+                _zunit_error "Failed to source bootstrap script $__zunit_parallel_bootstrap" \
+                    "$(cat "${__zunit_parallel_statefile%.state}.log" 2>/dev/null)"
+                _zunit_parallel_child_finish
+                exit 1
+            fi
+
             _zunit_run_testfile "${__zunit_parallel_args[$__zunit_parallel_k]}" \
                 "${__zunit_parallel_groups[$__zunit_parallel_k]}" \
                 "${__zunit_parallel_ngroups[$__zunit_parallel_k]}"

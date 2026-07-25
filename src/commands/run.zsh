@@ -245,7 +245,7 @@ function _zunit_parse_argument() {
 function _zunit_run() {
     local -a arguments testfiles
     local fail_fast tap allow_risky verbose revolver
-    local parallel no_progress _zunit_parallel_child
+    local parallel no_progress _zunit_parallel_child __zunit_parallel_bootstrap
     local output_text logfile_text output_html logfile_html
 
     # Load the datetime module, and record the start time
@@ -317,6 +317,12 @@ function _zunit_run() {
         _zunit_html_header > $logfile_html
     fi
 
+    # Check if parallel is specified in the config or as an option.
+    # Resolved before the bootstrap script is handled below, because
+    # parallel mode changes where that script is sourced
+    if [[ -z $parallel ]] && [[ "$zunit_config_parallel" = "true" ]]; then
+        parallel=1
+    fi
     if [[ -n $zunit_config_directories_support ]]; then
         # Check that the support directory exists
         local support="$zunit_config_directories_support"
@@ -325,11 +331,20 @@ function _zunit_run() {
             exit 1
         fi
 
-        # Look for a bootstrap script in the support directory,
-        # and run it if it is available
+        # Look for a bootstrap script in the support directory. A
+        # serial run sources it here, once, into this shell. A
+        # parallel run leaves it to the workers instead, so that
+        # every worker builds its own copy of the environment the
+        # script prepares, exactly as a standalone run of its test
+        # file would
         if [[ -f "$support/bootstrap" ]]; then
-            source "$support/bootstrap"
-            print -Pr "%F{blue}==>%f Sourced bootstrap script $support/bootstrap"
+            if [[ -n $parallel ]]; then
+                __zunit_parallel_bootstrap="$support/bootstrap"
+                print -Pr "%F{blue}==>%f Bootstrap script $support/bootstrap will be sourced in each parallel worker"
+            else
+                source "$support/bootstrap"
+                print -Pr "%F{blue}==>%f Sourced bootstrap script $support/bootstrap"
+            fi
         fi
     fi
     # Check if fail_fast is specified in the config or as an option
@@ -343,10 +358,6 @@ function _zunit_run() {
     # Check if verbose is specified in the config or as an option
     if [[ -z $verbose ]] && [[ "$zunit_config_verbose" = "true" ]]; then
         verbose=1
-    fi
-    # Check if parallel is specified in the config or as an option
-    if [[ -z $parallel ]] && [[ "$zunit_config_parallel" = "true" ]]; then
-        parallel=1
     fi
     # Check if the progress bar has been disabled in the config
     # or as an option
