@@ -1,0 +1,4 @@
+parallel_slice: true
+directories:
+  tests: tests
+  support: support

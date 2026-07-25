@@ -23,7 +23,7 @@
   # name of the key above it, leaving the runner with a name it never
   # looks for
   for key in tap directories time_limit fail_fast allow_risky \
-    parallel progress verbose revolver; do
+    parallel parallel_slice progress verbose revolver; do
     run grep -qxE "${key}:.*" "$config"
     assert $state equals 0
   done

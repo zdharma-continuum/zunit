@@ -10,3 +10,6 @@
 
 # Ignore the marker file created by the parallel fail-fast fixture
 /tests/_support/parallel/tests-failfast/marker-created
+
+# Ignore the marker file created by the parallel ordering fixture
+/tests/_support/parallel/tests-ordered/marker-ordered

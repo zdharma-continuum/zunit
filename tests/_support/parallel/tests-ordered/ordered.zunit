@@ -1,0 +1,25 @@
+#!/usr/bin/env zunit
+
+# A file whose tests share state, which is the ordinary case: the
+# second test only passes if the first one has already run. Slicing
+# this file puts the two tests in workers which start together, so
+# the second reads for the marker long before the first writes it -
+# which is exactly what --slice must not do unless it is asked for.
+#
+# The sleep is what makes the sliced run fail reliably rather than
+# by a hair: a worker only has to fork, parse the file and evaluate
+# one assertion to reach the read, and none of that takes a second
+
+# The assertions name the marker relative to $testdir, which is what
+# is_file resolves a relative path against; touch needs the path
+# spelled out, because it is not going through the assertion
+
+@test 'one writes the marker' {
+  sleep 1
+  touch "$testdir/marker-ordered"
+  assert 'marker-ordered' is_file
+}
+
+@test 'two reads the marker written by one' {
+  assert 'marker-ordered' is_file
+}
