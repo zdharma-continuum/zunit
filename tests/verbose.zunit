@@ -46,8 +46,8 @@
 }
 
 @test 'verbose parallel output matches verbose serial output' {
-  serial_out=$(zsh "$zunit_bin" run --verbose "$fixture" 2>&1 | grep -v 'ran in')
-  parallel_sum=$(zsh "$zunit_bin" run --verbose --parallel "$fixture" 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(zsh "$zunit_bin" run --verbose "$fixture" 2>&1 | grep -v -e 'ran in' -e 'group[s]* across')
+  parallel_sum=$(zsh "$zunit_bin" run --verbose --parallel "$fixture" 2>&1 | grep -v -e 'ran in' -e 'group[s]* across' | cksum)
 
   assert "$serial_out" matches 'talks while passing'
   assert "$(print -r -- "$serial_out" | cksum)" same_as "$parallel_sum"

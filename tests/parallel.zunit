@@ -44,10 +44,14 @@
 # treat as a glob pattern. Before comparing, a known marker is
 # asserted on the raw serial output so the parity check cannot pass
 # vacuously on two identical failure messages
+#
+# The group count banner is filtered out alongside the timing line: it
+# is the one line a parallel run prints which a serial run has no
+# equivalent for, and it has tests of its own below
 
 @test 'parallel output matches serial output for multiple files' {
-  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests 2>&1 | grep -v 'ran in')
-  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests 2>&1 | grep -v -e 'ran in' -e 'group[s]* across')
+  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests 2>&1 | grep -v -e 'ran in' -e 'group[s]* across' | cksum)
 
   assert "$serial_out" matches 'a first passes'
   assert "$serial_out" matches 'single eight passes'
@@ -55,16 +59,16 @@
 }
 
 @test 'parallel output matches serial output for a single file' {
-  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v 'ran in')
-  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests/single-mixed.zunit 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v -e 'ran in' -e 'group[s]* across')
+  parallel_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel tests/single-mixed.zunit 2>&1 | grep -v -e 'ran in' -e 'group[s]* across' | cksum)
 
   assert "$serial_out" matches 'single eight passes'
   assert "$(print -r -- "$serial_out" | cksum)" same_as "$parallel_sum"
 }
 
 @test 'sliced output matches serial output for a single file' {
-  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v 'ran in')
-  sliced_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel --slice tests/single-mixed.zunit 2>&1 | grep -v 'ran in' | cksum)
+  serial_out=$(cd "$fixture" && zsh "$zunit_bin" run tests/single-mixed.zunit 2>&1 | grep -v -e 'ran in' -e 'group[s]* across')
+  sliced_sum=$(cd "$fixture" && zsh "$zunit_bin" run --parallel --slice tests/single-mixed.zunit 2>&1 | grep -v -e 'ran in' -e 'group[s]* across' | cksum)
 
   assert "$serial_out" matches 'single eight passes'
   assert "$(print -r -- "$serial_out" | cksum)" same_as "$sliced_sum"
@@ -117,6 +121,46 @@
   run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --slice tests-ordered/ordered.zunit"
 
   assert $state equals 1
+}
+
+@test 'a parallel run says how many groups it was split into' {
+  # Four files in the fixture, and a file is one unit of work, so the
+  # group count does not move with the number of cores the run finds
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --parallel tests"
+
+  assert "$output" matches '4 parallel groups across [0-9]+ workers?'
+}
+
+@test 'a sliced run counts slices rather than files' {
+  # The slice count is bounded by the cores available, so only the
+  # shape of the line can be asserted - the number belongs to the machine
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --parallel --slice tests/single-mixed.zunit"
+
+  assert "$output" matches '[0-9]+ slice groups? across [0-9]+ workers?'
+}
+
+@test 'a run split into one group is not counted in the plural' {
+  # c-pass.zunit holds a single test, and a file is never split into
+  # more slices than it has tests, so this run has exactly one group
+  # wherever it is run
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --parallel --slice tests/c-pass.zunit"
+
+  assert "$output" matches '1 slice group across'
+}
+
+@test 'the group count is left out of TAP output' {
+  # TAP is machine readable, so the line is suppressed rather than
+  # dressed up as a diagnostic
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --tap --parallel tests"
+
+  assert "$output" does_not_match '(parallel|slice) group'
+}
+
+@test 'the group count is printed once' {
+  # Printed by the runner before the workers start, not by each of them
+  run zsh -c "cd '$fixture' && zsh '$zunit_bin' run --parallel tests | grep -c 'parallel groups'"
+
+  assert "$output" same_as '1'
 }
 
 @test 'parallel TAP output matches serial TAP output' {
