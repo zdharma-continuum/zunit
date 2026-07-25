@@ -1,82 +1,110 @@
 #compdef zunit
 
 _zunit() {
-  local context state state_descr line curcontext="$curcontext"
-  typeset -A opt_args
-  local -a run_options init_options
+    local curcontext="$curcontext" line
+    typeset -A opt_args
+    local -a run_options init_options
 
-  # The runner treats an unrecognised first word as a test file and
-  # hands it to `zunit run`, so these are offered before a command has
-  # been chosen as well as after it
-  run_options=(
-    '(- : *)'{-h,--help}'[output help text and exit]'
-    '(- : *)'{-v,--version}'[output version information and exit]'
-    '(-f --fail-fast)'{-f,--fail-fast}'[stop the test runner immediately after the first failure]'
-    '(-p --parallel)'{-p,--parallel}'[run tests in parallel across CPU cores]'
-    '(-r --revolver)'{-r,--revolver}'[run tests with revolver spinner]'
-    '(-t --tap)'{-t,--tap}'[output results in a TAP compatible format]'
-    '--allow-risky[supress warnings generated for risky tests]'
-    '--no-progress[disable the progress bar during parallel runs]'
-    '--output-html[print results to a HTML page]'
-    '--output-text[print results to a text log, in TAP compatible format]'
-    "--slice[split a single test file's tests across workers]"
-    '--time-limit=[set a time limit in seconds for each test]:seconds:'
-    '--verbose[prints full output from each test]'
-  )
+    # The runner treats an unrecognised first word as a test file and
+    # hands it to `zunit run`, so these are offered before a command has
+    # been chosen as well as after it
+    run_options=(
+        '(- : *)'{-h,--help}'[output help text and exit]'
+        '(- : *)'{-v,--version}'[output version information and exit]'
+        '(-f --fail-fast)'{-f,--fail-fast}'[stop the test runner immediately after the first failure]'
+        '(-p --parallel)'{-p,--parallel}'[run tests in parallel across CPU cores]'
+        '(-r --revolver)'{-r,--revolver}'[run tests with revolver spinner]'
+        '(-t --tap)'{-t,--tap}'[output results in a TAP compatible format]'
+        '--allow-risky[supress warnings generated for risky tests]'
+        '--no-progress[disable the progress bar during parallel runs]'
+        '--output-html[print results to a HTML page]'
+        '--output-text[print results to a text log, in TAP compatible format]'
+        "--slice[split a single test file's tests across workers]"
+        '--time-limit=[set a time limit in seconds for each test]:seconds: _guard "[0-9]#" seconds'
+        '--verbose[prints full output from each test]'
+    )
 
-  init_options=(
-    '(- : *)'{-h,--help}'[output help text and exit]'
-    '(- : *)'{-v,--version}'[output version information and exit]'
-    '(-t --travis)'{-t,--travis}'[generate .travis.yml in project]'
-  )
+    init_options=(
+        '(- : *)'{-h,--help}'[output help text and exit]'
+        '(- : *)'{-v,--version}'[output version information and exit]'
+        '(-t --travis)'{-t,--travis}'[generate .travis.yml in project]'
+    )
 
-  # Options may be given either side of the test arguments, so -A is
-  # deliberately absent. Single letter options can be stacked, hence -s
-  _arguments -C -s \
-    $run_options \
-    '1: :_zunit_first_arg' \
-    '*::arg:->args'
+    # `init` is the only command whose options differ, and it takes no
+    # arguments of its own. Drop the `zunit` word so that _arguments
+    # reads the line as though `init` were the command
+    if ((CURRENT > 2)) && [[ $words[2] == init ]]; then
+        shift words
+        ((CURRENT--))
+        _arguments -s $init_options
+        return
+    fi
 
-  case "$state" in
-    args )
-      case "${line[1]}" in
-        init )
-          _arguments -s $init_options
-          ;;
-        * )
-          # `run`, or a test file given without a command
-          _arguments -C -s \
-            $run_options \
-            '*:test:_zunit_tests'
-          ;;
-      esac
-      ;;
-  esac
+    # Options may be given either side of the test arguments, so -A is
+    # deliberately absent. Single letter options can be stacked, hence -s.
+    # The test arguments are listed here rather than deferred to a second
+    # _arguments call through a '*::arg:->state' rest argument, because
+    # that call is never reached once an option follows the command
+    _arguments -C -s \
+        $run_options \
+        '1: :_zunit_first_arg' \
+        '*:test:_zunit_tests'
 }
 
-(( $+functions[_zunit_commands] )) || _zunit_commands() {
-  local -a commands
-  commands=(
-    'init:Bootstrap ZUnit in a new project'
-    'run:Run tests'
-  )
+(($+functions[_zunit_commands])) || _zunit_commands() {
+    local -a commands
+    commands=(
+        'init:Bootstrap ZUnit in a new project'
+        'run:Run tests'
+    )
 
-  _describe -t commands 'command' commands
+    _describe -t commands 'command' commands
 }
 
-(( $+functions[_zunit_tests] )) || _zunit_tests() {
-  # A test argument is a file, a directory of test files, or a single
-  # test within a file, written as 'file.zunit@test name'. Only the
-  # path can be completed. Directories are still offered, both as
-  # arguments in their own right and to descend into
-  _files -g '*.zunit'
+(($+functions[_zunit_test_names])) || _zunit_test_names() {
+    # The runner reads a test name as the text between the first and the
+    # last quote of an `@test` line, so read them back the same way here
+    local file="$1" line expl pattern='^ *@test  *([^ ].*)  *\{'
+    local -a names
+
+    [[ -f $file ]] || return 1
+
+    while IFS= read -r line; do
+        [[ $line =~ $pattern ]] || continue
+        names+=("${line[(( ${line[(i)[\']]}+1 )),(( ${line[(I)[\']]}-1 ))]}")
+    done < $file
+
+    (($#names)) || return 1
+
+    # Only the name is being completed, so discard the path and the '@'
+    compset -P '[^@]#@'
+    _wanted tests expl 'test' compadd -a names
 }
 
-(( $+functions[_zunit_first_arg] )) || _zunit_first_arg() {
-  # The command is optional - `zunit tests/example.zunit` runs the file
-  _alternative \
-    'commands:command:_zunit_commands' \
-    'tests:test:_zunit_tests'
+(($+functions[_zunit_tests])) || _zunit_tests() {
+    local -a ignored_paths
+
+    # A test argument is a file, a directory of test files, or a single
+    # test within a file, written as 'file.zunit@test name'
+    if [[ $PREFIX == *@* ]]; then
+        _zunit_test_names "${PREFIX%%@*}"
+        return
+    fi
+
+    # A path whose name begins with an underscore is skipped by the
+    # runner, so neither the output nor the support directory is worth
+    # offering. Directories are still offered, both as arguments in their
+    # own right and to descend into
+    ignored_paths=('_*')
+
+    _files -F ignored_paths -g '*.zunit'
+}
+
+(($+functions[_zunit_first_arg])) || _zunit_first_arg() {
+    # The command is optional - `zunit tests/example.zunit` runs the file
+    _alternative \
+        'commands:command:_zunit_commands' \
+        'tests:test:_zunit_tests'
 }
 
 _zunit "$@"
