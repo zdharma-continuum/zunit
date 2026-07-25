@@ -77,6 +77,7 @@ equivalent.
 | `--no-progress` | Disable the progress bar during parallel runs |
 | `--output-html` | Print results to a HTML page |
 | `--output-text` | Print results to a text log, in TAP compatible format |
+| `--slice` | Split a single test file's tests across workers. Implies `--parallel` |
 | `--time-limit <n>` | Set a time limit of n seconds for each test |
 | `--verbose` | Print full output from each test |
 
@@ -121,6 +122,7 @@ time_limit: 0
 fail_fast: false
 allow_risky: false
 parallel: false
+parallel_slice: false
 progress: true
 verbose: false
 revolver: false
@@ -136,9 +138,19 @@ revolver: false
 | `fail_fast` | `false` | Equivalent to `--fail-fast` |
 | `allow_risky` | `false` | Equivalent to `--allow-risky` |
 | `parallel` | `false` | Equivalent to `--parallel` |
+| `parallel_slice` | `false` | Equivalent to `--slice` |
 | `progress` | `true` | Set to `false` for the same effect as `--no-progress` |
 | `verbose` | `false` | Equivalent to `--verbose` |
 | `revolver` | `false` | Equivalent to `--revolver`. Requires the `revolver` binary on `$PATH` |
+
+The unit of work in a parallel run is a whole test file. The tests inside a file run in the order
+they are declared, and share whatever state they leave on disk, so a file is never split across
+workers by default — a run of one file is a run of one worker.
+
+`--slice` opts out of that. It splits a single file's tests into contiguous groups, one per worker,
+and is worth reaching for when a large file's tests are genuinely independent of each other and of
+their order. It does nothing when more than one file is queued, since those are already running side
+by side, and it implies `--parallel`.
 
 The progress bar is drawn during parallel runs only, and only when stderr is a terminal and TAP
 output has not been requested, so piped output and report files are byte for byte identical to a
