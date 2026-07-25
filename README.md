@@ -131,7 +131,7 @@ revolver: false
 | `tap` | `false` | Equivalent to `--tap` |
 | `directories.tests` | `tests` | Where `zunit run` looks when given no arguments |
 | `directories.output` | `tests/_output` | Must be set before `--output-text` or `--output-html` will run |
-| `directories.support` | `tests/_support` | Must exist if set. A `bootstrap` script inside it is sourced before the run |
+| `directories.support` | `tests/_support` | Must exist if set. A `bootstrap` script inside it is sourced once before a serial run, and by each worker in a parallel run |
 | `time_limit` | `0` | Seconds allowed per test. `0` means no limit |
 | `fail_fast` | `false` | Equivalent to `--fail-fast` |
 | `allow_risky` | `false` | Equivalent to `--allow-risky` |
@@ -143,6 +143,11 @@ revolver: false
 The progress bar is drawn during parallel runs only, and only when stderr is a terminal and TAP
 output has not been requested, so piped output and report files are byte for byte identical to a
 serial run.
+
+During a parallel run the bootstrap script is not sourced into the runner itself. Each worker
+sources it before running its share of the tests, so every worker builds its own copy of whatever
+environment the script prepares, and nothing the script creates is shared between workers. A worker
+whose bootstrap fails runs no tests, and the run reports the failure and exits non-zero.
 
 ### Exit codes
 
