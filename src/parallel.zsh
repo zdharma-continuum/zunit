@@ -366,6 +366,7 @@ function _zunit_parallel_run() {
     integer __zunit_parallel_max=$(_zunit_parallel_cores)
     integer __zunit_parallel_k __zunit_parallel_slices
     local __zunit_parallel_file __zunit_parallel_prev
+    local __zunit_parallel_noun __zunit_parallel_worker
     local -a __zunit_parallel_ordered __zunit_parallel_args
     local -a __zunit_parallel_groups __zunit_parallel_ngroups
     local -a __zunit_parallel_pids __zunit_parallel_spawned
@@ -417,6 +418,22 @@ function _zunit_parallel_run() {
             __zunit_parallel_groups+=(0)
             __zunit_parallel_ngroups+=(0)
         done
+    fi
+
+    # Say how the work was split, and how much of it can run at once,
+    # before any of it starts. Neither number is knowable from the
+    # command line - the group count depends on what was queued and
+    # whether slicing applied, and the worker count comes from the
+    # machine. TAP output is machine readable, so it is left out of it
+    if [[ -z $tap ]]; then
+        __zunit_parallel_noun='parallel group'
+        (( __zunit_parallel_slices > 0 )) && __zunit_parallel_noun='slice group'
+        (( ${#__zunit_parallel_args} == 1 )) || __zunit_parallel_noun+='s'
+
+        __zunit_parallel_worker='worker'
+        (( __zunit_parallel_max == 1 )) || __zunit_parallel_worker+='s'
+
+        print -Pr "%F{blue}==>%f ${#__zunit_parallel_args} ${__zunit_parallel_noun} across ${__zunit_parallel_max} ${__zunit_parallel_worker}"
     fi
 
     _zunit_parallel_progress_init "${__zunit_parallel_ordered[@]}"
