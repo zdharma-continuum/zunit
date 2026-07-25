@@ -152,9 +152,14 @@ and is worth reaching for when a large file's tests are genuinely independent of
 their order. It does nothing when more than one file is queued, since those are already running side
 by side, and it implies `--parallel`.
 
+Every parallel run says how it was split before the first worker starts — `==> 4 parallel groups
+across 8 workers`, or `slice groups` when `--slice` split one file's tests. The number of workers is
+the most the run will start at once, taken from the CPU count. The line is left out of `--tap`
+output.
+
 The progress bar is drawn during parallel runs only, and only when stderr is a terminal and TAP
-output has not been requested, so piped output and report files are byte for byte identical to a
-serial run.
+output has not been requested, so report files are byte for byte identical to a serial run, and
+piped output differs from one only by the line above.
 
 During a parallel run the bootstrap script is not sourced into the runner itself. Each worker
 sources it before running its share of the tests, so every worker builds its own copy of whatever
