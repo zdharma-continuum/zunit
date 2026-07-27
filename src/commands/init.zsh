@@ -39,7 +39,10 @@ function _zunit_parse_yaml() {
 function _zunit_init() {
     local with_travis
 
-    zparseopts -D t=with_travis -travis=with_travis
+    # -E, so that an option which belongs to no command - one written
+    # before `init` and meant for the runner - does not stop the parse
+    # and take `--travis` down with it
+    zparseopts -D -E t=with_travis -travis=with_travis
 
     # The contents of .zunit.yml. Every line is flush with the left
     # margin on purpose - _zunit_parse_yaml works out the nesting of a
