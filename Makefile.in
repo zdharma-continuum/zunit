@@ -112,3 +112,4 @@ build:
 	@$(call ised,"s/{{ZUNIT_REVISION}}/$$(git log -n1 --format=%h -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_REVISION_DATE}}/$$(git log -n1 --format='%ai' -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_VERSION}}/$$(echo ${VERSION})/",${PROG})
+	@chmod +x ${PROG}
