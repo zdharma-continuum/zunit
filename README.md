@@ -63,7 +63,11 @@ equivalent.
 
 ### Options
 
-`-h`/`--help` and `-v`/`--version` are accepted anywhere, before or after a command.
+Options may be written on either side of the command, so `zunit --parallel run tests` and
+`zunit run --parallel tests` are equivalent. `-h`/`--help` and `-v`/`--version` are accepted
+anywhere. Every other option belongs to a command — `--travis` to `init`, the rest to `run` — so
+`-t` means `--tap` when it is given to `run` and `--travis` when it is given to `init`, wherever on
+the line it appears.
 
 | Option | Description |
 | --- | --- |
