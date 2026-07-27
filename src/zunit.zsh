@@ -34,7 +34,7 @@ function _zunit_usage() {
 # FUNCTION: _zunit_version [[[
 # Output the version number
 function _zunit_version() {
-    echo '0.15.0'
+    echo '0.15.1'
 } # ]]]
 # FUNCTION: _zunit [[[
 # The main zunit process
