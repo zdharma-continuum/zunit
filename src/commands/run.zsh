@@ -387,9 +387,13 @@ function _zunit_run() {
         fi
     fi
 
-    # Check if time_limit is specified in the config or as an option
+    # Check if time_limit is specified in the config or as an option.
+    # The '--time-limit=5' form leaves the '=' attached to the value
+    # where the '--time-limit 5' form does not, so it is stripped here
+    # and both forms reach the arithmetic in the runner as a number
     if [[ -n $time_limit ]]; then
         shift time_limit
+        time_limit=(${time_limit#=})
     elif [[ -n $zunit_config_time_limit ]]; then
         time_limit=$zunit_config_time_limit
     fi
