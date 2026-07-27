@@ -3,14 +3,16 @@
 _zunit() {
     local curcontext="$curcontext" line
     typeset -A opt_args
-    local -a run_options init_options
+    local -a global_options run_options init_options
 
-    # The runner treats an unrecognised first word as a test file and
-    # hands it to `zunit run`, so these are offered before a command has
-    # been chosen as well as after it
-    run_options=(
+    # Read before the command is, and exclusive of everything else
+    global_options=(
         '(- : *)'{-h,--help}'[output help text and exit]'
         '(- : *)'{-v,--version}'[output version information and exit]'
+    )
+
+    run_options=(
+        $global_options
         '(-f --fail-fast)'{-f,--fail-fast}'[stop the test runner immediately after the first failure]'
         '(-p --parallel)'{-p,--parallel}'[run tests in parallel across CPU cores]'
         '(-r --revolver)'{-r,--revolver}'[run tests with revolver spinner]'
@@ -25,26 +27,54 @@ _zunit() {
     )
 
     init_options=(
-        '(- : *)'{-h,--help}'[output help text and exit]'
-        '(- : *)'{-v,--version}'[output version information and exit]'
+        $global_options
         '(-t --travis)'{-t,--travis}'[generate .travis.yml in project]'
     )
 
-    # `init` is the only command whose options differ, and it takes no
-    # arguments of its own. Drop the `zunit` word so that _arguments
-    # reads the line as though `init` were the command
-    if ((CURRENT > 2)) && [[ $words[2] == init ]]; then
-        shift words
+    # An option which belongs to a command may be written before it, so
+    # the command is the first word which is neither an option nor the
+    # value of one, exactly as the runner reads it. Only the words
+    # before the cursor are scanned, so that the word being completed is
+    # never taken for the command
+    local ctx
+    local -i i pos=0
+    for (( i = 2; i < CURRENT; i++ )); do
+        case "$words[i]" in
+            --time-limit ) i=$(( i + 1 )) ;;
+            -* ) ;;
+            * ) ctx="$words[i]"; pos=i; break ;;
+        esac
+    done
+
+    # A recognised command takes the place of the `zunit` word at the
+    # front of the line, so that _arguments reads it as the command
+    # word and everything written before it as an option given to it
+    if [[ $ctx == (init|run) ]]; then
+        words=($ctx "${(@)words[2,pos-1]}" "${(@)words[pos+1,-1]}")
         ((CURRENT--))
-        _arguments -s $init_options
+
+        # `init` is the only command whose options differ, and it takes
+        # no arguments of its own
+        if [[ $ctx == init ]]; then
+            _arguments -s $init_options
+            return
+        fi
+
+        # Options may be given either side of the test arguments, so -A
+        # is deliberately absent. Single letter options can be stacked,
+        # hence -s. The test arguments are listed here rather than
+        # deferred to a second _arguments call through a
+        # '*::arg:->state' rest argument, because that call is never
+        # reached once an option follows the command
+        _arguments -s \
+            $run_options \
+            '*:test:_zunit_tests'
         return
     fi
 
-    # Options may be given either side of the test arguments, so -A is
-    # deliberately absent. Single letter options can be stacked, hence -s.
-    # The test arguments are listed here rather than deferred to a second
-    # _arguments call through a '*::arg:->state' rest argument, because
-    # that call is never reached once an option follows the command
+    # No command has been named. An unrecognised first word is a test
+    # path, and the whole line is handed to `run`, so the run options
+    # belong here too and the first argument may be either
     _arguments -C -s \
         $run_options \
         '1: :_zunit_first_arg' \
