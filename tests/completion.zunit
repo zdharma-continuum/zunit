@@ -123,6 +123,10 @@
   local candidates="$(complete_line 'zunit run --verbose ')"
 
   assert "$candidates" contains '.zunit'
+
+  # The same option written on the other side of the command has to
+  # leave the line completing as a `run` all the same
+  assert "$(complete_line 'zunit --verbose run ')" contains '.zunit'
 }
 
 @test 'completion hides the paths the runner skips' {
@@ -142,4 +146,56 @@
   local candidates="$(complete_line 'zunit run run.zunit@')"
 
   assert "$candidates" contains 'non-existent'
+}
+
+@test 'completion offers run options before a command' {
+  # An option may be written before the command it belongs to, and an
+  # unrecognised first word is handed to `run` along with the rest of
+  # the line, so the run options are on offer before a command as well
+  # as after one
+  local candidates="$(complete_line 'zunit --')"
+
+  assert "$candidates" contains '--help'
+  assert "$candidates" contains '--version'
+  assert "$candidates" contains '--tap'
+  assert "$candidates" contains '--parallel'
+  assert "$candidates" contains '--verbose'
+}
+
+@test 'completion offers run options after run' {
+  local candidates="$(complete_line 'zunit run --')"
+
+  assert "$candidates" contains '--parallel'
+  assert "$candidates" contains '--tap'
+  assert "$candidates" contains '--verbose'
+}
+
+@test 'completion offers only init options after init' {
+  # `init` bootstraps a project and runs no tests, so none of the
+  # runner's options mean anything to it
+  local candidates="$(complete_line 'zunit init --')"
+
+  assert "$candidates" contains '--travis'
+  assert "$candidates" does_not_contain '--tap'
+  assert "$candidates" does_not_contain '--parallel'
+  assert "$candidates" does_not_contain '--verbose'
+}
+
+@test 'completion finds the command behind an option' {
+  # The command is not always the first word, so the command word is
+  # looked for the way the runner looks for it. Reading it from the
+  # first word would leave this line completing as a `run`
+  local candidates="$(complete_line 'zunit --verbose init --')"
+
+  assert "$candidates" contains '--travis'
+  assert "$candidates" does_not_contain '--parallel'
+}
+
+@test 'completion reads a leading test path as a run' {
+  # The command is optional, and an unrecognised first word is handed
+  # to `run` along with the rest of the line, so the run options follow
+  # a test path just as they follow the command
+  local candidates="$(complete_line 'zunit run.zunit --')"
+
+  assert "$candidates" contains '--verbose'
 }
