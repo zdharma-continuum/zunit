@@ -92,7 +92,7 @@ tests:
 	${PROG} run
 
 install:
-	install -cdv -m755 ${PROG} ${PREFIX}/bin/zunit
+	install -cv -m755 ${PROG} ${PREFIX}/bin/zunit
 
 uninstall:
 	rm -f ${PREFIX}/bin/zunit
