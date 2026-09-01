@@ -1,0 +1,5 @@
+#!/usr/bin/env zunit
+
+@test 'config enabled parallel run passes' {
+  assert 1 equals 1
+}

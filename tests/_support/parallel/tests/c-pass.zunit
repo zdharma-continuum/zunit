@@ -1,0 +1,5 @@
+#!/usr/bin/env zunit
+
+@test 'c passes' {
+  assert 2 equals 2
+}

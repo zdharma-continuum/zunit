@@ -1,0 +1,11 @@
+#!/usr/bin/env zunit
+
+@test 'waits for the failure in a-fails' {
+  sleep 1
+  assert 1 equals 1
+}
+
+@test 'creates a marker file' {
+  touch "$testdir/marker-created"
+  assert 1 equals 1
+}

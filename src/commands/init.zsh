@@ -39,44 +39,57 @@ function _zunit_parse_yaml() {
 function _zunit_init() {
     local with_travis
 
-    zparseopts -D t=with_travis -travis=with_travis
+    # -E, so that an option which belongs to no command - one written
+    # before `init` and meant for the runner - does not stop the parse
+    # and take `--travis` down with it
+    zparseopts -D -E t=with_travis -travis=with_travis
 
-    # The contents of .zunit.yml
+    # The contents of .zunit.yml. Every line is flush with the left
+    # margin on purpose - _zunit_parse_yaml works out the nesting of a
+    # key from its indentation, so a template which carried the
+    # indentation of this source file would nest every key beneath the
+    # first one, and none of the names the runner reads would be set
     local yaml="tap: false
-    directories:
-    tests: tests
-    output: tests/_output
-    support: tests/_support
-    time_limit: 0
-    fail_fast: false
-    allow_risky: false"
+directories:
+  tests: tests
+  output: tests/_output
+  support: tests/_support
+time_limit: 0
+fail_fast: false
+allow_risky: false
+parallel: false
+parallel_slice: false
+progress: true
+verbose: false
+revolver: false"
 
-    # An example test file
+    # An example test file. It fails on purpose, so that a new project
+    # has something to see the reporter do
     local example="#!/usr/bin/env zunit
 
-    @test 'Example' {
-        assert "'"true"'" same_as "'"false"'"
-    }"
+@test 'Example' {
+    assert "'"true"'" same_as "'"false"'"
+}"
 
     # An empty bootstrap script
     local bootstrap="#!/usr/bin/env zsh
 
-    # Write your bootstrap code here"
+# Write your bootstrap code here"
 
     # An example .travis.yml config
     local travis_yml="addons:
-    apt:
+  apt:
     packages:
-    zsh
-    install:
-    - mkdir .bin
-    - curl -L https://github.com/zunit-zsh/zunit/releases/download/v$(_zunit_version)/zunit > .bin/zunit
-    - curl -L https://raw.githubusercontent.com/molovo/revolver/master/revolver > .bin/revolver
-    - curl -L https://raw.githubusercontent.com/molovo/color/master/color.zsh > .bin/color
-    before_script:
-    - chmod u+x .bin/{color,revolver,zunit}
-    - export PATH=\"\$PWD/.bin:\$PATH\"
-    script: zunit"
+      - zsh
+install:
+  - mkdir .bin
+  - curl -L https://github.com/zunit-zsh/zunit/releases/download/v$(_zunit_version)/zunit > .bin/zunit
+  - curl -L https://raw.githubusercontent.com/molovo/revolver/master/revolver > .bin/revolver
+  - curl -L https://raw.githubusercontent.com/molovo/color/master/color.zsh > .bin/color
+before_script:
+  - chmod u+x .bin/{color,revolver,zunit}
+  - export PATH=\"\$PWD/.bin:\$PATH\"
+script: zunit"
 
     # Check that a config file doesn't already exist so that
     # we don't overwrite it

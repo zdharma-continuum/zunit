@@ -1,0 +1,17 @@
+#!/usr/bin/env zunit
+
+@test 'b passes' {
+  assert 1 equals 1
+}
+
+@test 'b fails' {
+  assert 1 equals 2
+}
+
+@test 'b skips' {
+  skip 'not today'
+}
+
+@test 'b risky' {
+  echo 'no assertions here'
+}

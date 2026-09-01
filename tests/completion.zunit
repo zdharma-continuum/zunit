@@ -1,0 +1,201 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+  completion_file="$project_root/_zunit"
+  completion="$(<$completion_file)"
+
+  # Every option the CLI accepts, gathered from the usage text of both
+  # commands. The colour escapes are stripped first, so that a line
+  # which the reporter has painted still parses
+  usage_text() {
+    { zsh "$zunit_bin" run --help; zsh "$zunit_bin" init --help } 2>&1 \
+      | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g'
+  }
+
+  # Type a line into a zsh running under a pseudo terminal, press tab
+  # twice, and return everything the completion system drew. Comparing
+  # the file against the usage text says nothing about what a tab
+  # actually offers, which is how a completion that parses cleanly can
+  # still offer nothing at all
+  complete_line() {
+    # Separation of the main zunit option scope
+    setopt localoptions
+
+    # Within tests, the shell is set to exit immediately when errors
+    # occur. Both a wait that times out and a read that finds nothing
+    # report failure here, and neither one is an error
+    unsetopt ERR_EXIT
+
+    local line="$1" buf='' chunk='' i
+    zmodload zsh/zpty
+    zmodload zsh/zselect
+
+    zpty -d zunit_comp 2>/dev/null
+    zpty -b zunit_comp zsh -f
+
+    # Each write has to stay well inside the terminal's line limit,
+    # which is 1024 bytes on some systems. A longer write is truncated
+    # and leaves the shell waiting for the rest of it
+    zpty -w zunit_comp 'LINES=200; COLUMNS=200; export LINES COLUMNS'
+    zpty -w zunit_comp "cd ${(q)project_root}/tests"
+    zpty -w zunit_comp "fpath=(${(q)project_root} \$fpath)"
+    zpty -w zunit_comp 'autoload -Uz compinit; compinit -u -D'
+    zpty -w zunit_comp 'setopt nolistbeep; LISTMAX=999'
+
+    # Let compinit finish, then discard the startup chatter
+    zselect -t 100
+    for i in {1..15}; do chunk=''; zpty -r zunit_comp chunk 2>/dev/null; zselect -t 5; done
+
+    # The second tab lists the candidates when the first only inserts
+    # the prefix they share
+    zpty -w -n zunit_comp "$line"
+    zselect -t 20
+    zpty -w -n zunit_comp $'\t'
+    zselect -t 40
+    zpty -w -n zunit_comp $'\t'
+
+    for i in {1..25}; do
+      chunk=''
+      zpty -r zunit_comp chunk 2>/dev/null && buf+="$chunk"
+      zselect -t 8
+    done
+    zpty -d zunit_comp 2>/dev/null
+
+    print -r -- "$buf" | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '\r'
+  }
+}
+
+@test 'the completion file is valid zsh' {
+  run zsh -n "$completion_file"
+
+  assert $state equals 0
+  assert "$output" is_empty
+}
+
+@test 'completion offers every option the CLI accepts' {
+  local -a options
+  options=(${(f)"$(usage_text | grep -oE -- '--[a-z-]+' | sort -u)"})
+
+  assert ${#options} is_greater_than 0
+  for option in $options; do
+    assert "$completion" contains "$option"
+  done
+}
+
+@test 'completion offers no option the CLI rejects' {
+  local -a options usage
+  options=(${(f)"$(grep -oE -- '--[a-z-]+' "$completion_file" | sort -u)"})
+  usage="$(usage_text)"
+
+  assert ${#options} is_greater_than 0
+  for option in $options; do
+    assert "$usage" contains "$option"
+  done
+}
+
+@test 'completion pairs every short option with its long form' {
+  # A usage line reads '  -f, --fail-fast    Stop the test runner...',
+  # which is rewritten here into the '{-f,--fail-fast}' form the
+  # completion declares its option pairs in
+  local -a pairs
+  pairs=(${(f)"$(usage_text | sed -nE 's/^  (-[a-z]), (--[a-z-]+).*/{\1,\2}/p' | sort -u)"})
+
+  assert ${#pairs} is_greater_than 0
+  for pair in $pairs; do
+    assert "$completion" contains "$pair"
+  done
+}
+
+@test 'completion knows --time-limit takes an argument' {
+  # The trailing '=' is what makes both '--time-limit 5' and
+  # '--time-limit=5' complete a value
+  assert "$completion" contains '--time-limit=['
+}
+
+@test 'completion offers test files after an option' {
+  # Options may be given either side of the test arguments. Declaring
+  # the test arguments as a rest argument that defers to a second
+  # _arguments call left this line offering nothing at all, because
+  # that second call is never reached once an option follows the
+  # command
+  local candidates="$(complete_line 'zunit run --verbose ')"
+
+  assert "$candidates" contains '.zunit'
+
+  # The same option written on the other side of the command has to
+  # leave the line completing as a `run` all the same
+  assert "$(complete_line 'zunit --verbose run ')" contains '.zunit'
+}
+
+@test 'completion hides the paths the runner skips' {
+  # The runner ignores any path whose name begins with an underscore,
+  # so the output and support directories are not worth offering
+  local candidates="$(complete_line 'zunit run ')"
+
+  assert "$candidates" contains 'run.zunit'
+  assert "$candidates" does_not_contain '_support'
+  assert "$candidates" does_not_contain '_output'
+}
+
+@test 'completion offers the tests declared in a file' {
+  # The name is matched against a single test, written after an '@'.
+  # The names are listed with their spaces escaped, so this looks for
+  # the one word of the three that contains no space
+  local candidates="$(complete_line 'zunit run run.zunit@')"
+
+  assert "$candidates" contains 'non-existent'
+}
+
+@test 'completion offers run options before a command' {
+  # An option may be written before the command it belongs to, and an
+  # unrecognised first word is handed to `run` along with the rest of
+  # the line, so the run options are on offer before a command as well
+  # as after one
+  local candidates="$(complete_line 'zunit --')"
+
+  assert "$candidates" contains '--help'
+  assert "$candidates" contains '--version'
+  assert "$candidates" contains '--tap'
+  assert "$candidates" contains '--parallel'
+  assert "$candidates" contains '--verbose'
+}
+
+@test 'completion offers run options after run' {
+  local candidates="$(complete_line 'zunit run --')"
+
+  assert "$candidates" contains '--parallel'
+  assert "$candidates" contains '--tap'
+  assert "$candidates" contains '--verbose'
+}
+
+@test 'completion offers only init options after init' {
+  # `init` bootstraps a project and runs no tests, so none of the
+  # runner's options mean anything to it
+  local candidates="$(complete_line 'zunit init --')"
+
+  assert "$candidates" contains '--travis'
+  assert "$candidates" does_not_contain '--tap'
+  assert "$candidates" does_not_contain '--parallel'
+  assert "$candidates" does_not_contain '--verbose'
+}
+
+@test 'completion finds the command behind an option' {
+  # The command is not always the first word, so the command word is
+  # looked for the way the runner looks for it. Reading it from the
+  # first word would leave this line completing as a `run`
+  local candidates="$(complete_line 'zunit --verbose init --')"
+
+  assert "$candidates" contains '--travis'
+  assert "$candidates" does_not_contain '--parallel'
+}
+
+@test 'completion reads a leading test path as a run' {
+  # The command is optional, and an unrecognised first word is handed
+  # to `run` along with the rest of the line, so the run options follow
+  # a test path just as they follow the command
+  local candidates="$(complete_line 'zunit run.zunit --')"
+
+  assert "$candidates" contains '--verbose'
+}

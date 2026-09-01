@@ -1,0 +1,96 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+  fixture="$project_root/tests/_support/parallel-bootstrap"
+  fail_fixture="$project_root/tests/_support/parallel-bootstrap-fail"
+  slice_fixture="$project_root/tests/_support/parallel-slice-config"
+
+  log_file=$(mktemp "${TMPDIR:-/tmp}/zunit-bootstrap-log.XXXXXX")
+
+  # The number of different shells the fixture bootstrap ran in -
+  # each source appends its own PID to $log_file
+  sourced_shells() {
+    sort -u "$log_file" | grep -c .
+  }
+}
+
+@teardown {
+  rm -f "$log_file"
+}
+
+@test 'parallel run sources the bootstrap in each worker' {
+  run zsh -c "cd '$fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run --parallel tests"
+
+  assert $state equals 0
+  assert "$output" matches 'will be sourced in each parallel worker'
+  assert "$output" does_not_match 'Sourced bootstrap script'
+  assert $(sourced_shells) equals 2
+}
+
+@test 'serial run still sources the bootstrap once' {
+  run zsh -c "cd '$fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run tests"
+
+  assert $state equals 0
+  assert "$output" matches 'Sourced bootstrap script'
+  assert $(sourced_shells) equals 1
+}
+
+@test 'parallel slices of a single file each source the bootstrap' {
+  integer cores
+  cores=$(nproc 2>/dev/null) \
+    || cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null) \
+    || cores=$(sysctl -n hw.ncpu 2>/dev/null) \
+    || cores=2
+  (( cores >= 2 )) || skip 'needs at least two cores'
+
+  run zsh -c "cd '$fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run --parallel --slice tests/alpha.zunit"
+
+  assert $state equals 0
+  assert $(sourced_shells) equals 2
+}
+
+@test 'a single file is not sliced without --slice' {
+  # The tests in a file run in declaration order and share whatever
+  # they leave on disk, so the file is one unit of work by default -
+  # one worker, one bootstrap, however many cores are going spare
+  run zsh -c "cd '$fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run --parallel tests/alpha.zunit"
+
+  assert $state equals 0
+  assert $(sourced_shells) equals 1
+}
+
+@test 'slicing can be enabled from .zunit.yml' {
+  integer cores
+  cores=$(nproc 2>/dev/null) \
+    || cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null) \
+    || cores=$(sysctl -n hw.ncpu 2>/dev/null) \
+    || cores=2
+  (( cores >= 2 )) || skip 'needs at least two cores'
+
+  run zsh -c "cd '$slice_fixture' && BOOTSTRAP_LOG='$log_file' zsh '$zunit_bin' run tests/alpha.zunit"
+
+  assert $state equals 0
+  assert $(sourced_shells) equals 2
+}
+
+@test 'the slice config key implies a parallel run' {
+  # parallel_slice is set in the fixture config, parallel is not.
+  # There is nothing to slice a file across without workers, so the
+  # runner turns the parallel flag on rather than silently doing
+  # neither
+  run zsh -c "cd '$slice_fixture' && zsh '$zunit_bin' run tests"
+
+  assert $state equals 0
+  assert "$output" matches 'will be sourced in each parallel worker'
+  assert "$output" does_not_match 'Sourced bootstrap script'
+}
+
+@test 'a failing bootstrap fails the parallel run' {
+  run zsh -c "cd '$fail_fixture' && zsh '$zunit_bin' run --parallel tests"
+
+  assert $state equals 1
+  assert "$output" matches 'Failed to source bootstrap script'
+  assert "$output" matches 'bootstrap deliberately failing'
+}

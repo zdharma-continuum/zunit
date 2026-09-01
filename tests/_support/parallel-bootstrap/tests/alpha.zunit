@@ -1,0 +1,11 @@
+#!/usr/bin/env zunit
+
+@test 'alpha one sees the bootstrap environment' {
+  assert "$bootstrap_pid" is_not_empty
+  assert "$bootstrap_scoped_var" same_as 'present'
+}
+
+@test 'alpha two sees the bootstrap environment' {
+  assert "$bootstrap_pid" is_not_empty
+  assert "$bootstrap_scoped_var" same_as 'present'
+}
