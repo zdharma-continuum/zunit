@@ -47,6 +47,7 @@ _zunit() {
             '--output-text[print results to a text log, in TAP compatible format]' \
             '--output-html[print results to a HTML page]' \
             '--allow-risky[supress warnings generated for risky tests]' \
+            '--test[run only the tests in a comma-separated list of names]:names:' \
             '--time-limit[set a time limit in seconds for each test]'
 
           _arguments \
