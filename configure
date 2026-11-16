@@ -52,7 +52,7 @@ while [[ $# -gt 0 ]]; do
 
 done
 
-BANNER_SEP=$(printf '%*s' 70 | tr ' ' '\#')
+BANNER_SEP=$(printf '%*s' 70 | tr ' ' '\043')
 
 cat > $target <<EOM
 ${BANNER_SEP}
