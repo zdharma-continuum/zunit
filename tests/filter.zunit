@@ -1,0 +1,69 @@
+#!/usr/bin/env zunit
+
+@setup {
+  fixture="$PWD/tests/_support/filter.zunit"
+}
+
+@test 'Test --test runs only the listed tests' {
+  run zunit run --tap --test one,three "$fixture"
+
+  assert $state equals 0
+  assert "$output" contains 'ok 1 - one'
+  assert "$output" contains 'ok 2 - three'
+  assert "$output" contains '1..2'
+}
+
+@test 'Test file@names runs only the listed tests' {
+  run zunit run --tap "$fixture@one,two"
+
+  assert $state equals 0
+  assert "$output" contains 'ok 2 - two'
+  assert "$output" contains '1..2'
+}
+
+@test 'Test --test and file@names are merged without duplicates' {
+  run zunit run --tap --test two,three "$fixture@two,one"
+
+  assert $state equals 0
+  assert "$output" contains 'ok 3 - three'
+  assert "$output" contains '1..3'
+}
+
+@test 'Test --test=names form' {
+  run zunit run --tap --test=two "$fixture"
+
+  assert $state equals 0
+  assert "$output" contains 'ok 1 - two'
+  assert "$output" contains '1..1'
+}
+
+@test 'Test file@name runs a single test' {
+  run zunit run --tap "$fixture@three"
+
+  assert $state equals 0
+  assert "$output" contains 'ok 1 - three'
+  assert "$output" contains '1..1'
+}
+
+@test 'Test --test matches names with spaces' {
+  run zunit run --tap --test 'Test successful command,Test unsuccessful command' tests/run.zunit
+
+  assert $state equals 0
+  assert "$output" contains 'ok 2 - Test unsuccessful command'
+  assert "$output" contains '1..2'
+}
+
+@test 'Test --test applies to every file' {
+  run zunit run --tap --test one "$fixture" tests/run.zunit
+
+  assert $state equals 0
+  assert "$output" contains 'ok 1 - one'
+  assert "$output" contains '1..1'
+}
+
+@test 'Test --test with an unknown name runs no tests' {
+  run zunit run --tap --test missing "$fixture"
+
+  assert $state equals 0
+  assert "$output" contains '1..0'
+}

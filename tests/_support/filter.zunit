@@ -1,0 +1,13 @@
+#!/usr/bin/env zunit
+
+@test 'one' {
+  pass
+}
+
+@test 'two' {
+  pass
+}
+
+@test 'three' {
+  pass
+}

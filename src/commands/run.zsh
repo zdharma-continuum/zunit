@@ -243,7 +243,7 @@ function _zunit_parse_argument() {
 # FUNCTION: _zunit_run [[[
 # Run tests
 function _zunit_run() {
-    local -a arguments testfiles
+    local -a arguments testfiles test_filter
     local fail_fast tap allow_risky verbose revolver
     local output_text logfile_text output_html logfile_html
 
@@ -260,6 +260,7 @@ function _zunit_run() {
         -allow-risky=allow_risky \
         -output-html=output_html \
         -output-text=output_text \
+        -test:=test_filter \
         -time-limit:=time_limit \
         -verbose=verbose
 
@@ -411,7 +412,10 @@ function _zunit_run_testfile() {
     local testbody testname pattern \
         setup teardown
     local -a bits; bits=("${(s/@/)1}")
-    local testfile="${bits[1]}" test_to_run="${bits[2]}" testdir="$(dirname "$testfile")"
+    # Merge the names after '@' with the names from --test.
+    # shortcut: a test name with a comma cannot be selected, add an escape if one is needed
+    local -aU tests_to_run; tests_to_run=(${(s/,/)bits[2]} ${(s/,/)test_filter[2]#=})
+    local testfile="${bits[1]}" testdir="$(dirname "$testfile")"
     local -a lines tests test_names
     tests=()
     test_names=()
@@ -432,9 +436,9 @@ function _zunit_run_testfile() {
             # Get test name from matches
             testname="${line[(( ${line[(i)[\']]}+1 )),(( ${line[(I)[\']]}-1 ))]}"
 
-            # If a test name has been passed to the CLI, don't parse this test
-            # unless it matches the name passed
-            if [[ -n $test_to_run && $testname != $test_to_run ]]; then
+            # If test names have been passed to the CLI, don't parse this test
+            # unless it matches one of the names passed
+            if (( $#tests_to_run && ! ${tests_to_run[(Ie)$testname]} )); then
                 testname=''
                 continue
             fi
@@ -556,7 +560,7 @@ function _zunit_run_testfile() {
 # Output usage information and exit
 function _zunit_run_usage() {
     echo "$(color yellow 'Usage:')"
-    echo "  zunit run [options] [tests...]"
+    echo "  zunit run [options] [tests[@name,...]...]"
     echo
     echo "$(color yellow 'Options:')"
     echo "  -h, --help             Output help text and exit"
@@ -567,6 +571,7 @@ function _zunit_run_usage() {
     echo "      --allow-risky      Supress warnings generated for risky tests"
     echo "      --output-html      Print results to a HTML page"
     echo "      --output-text      Print results to a text log, in TAP compatible format"
+    echo "      --test <names>     Run only the tests in a comma-separated list of names"
     echo "      --time-limit <n>   Set a time limit of n seconds for each test"
     echo "      --verbose          Prints full output from each test"
 } # ]]]
