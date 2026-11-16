@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+# The shape of a typical bootstrap: it prepares an environment for
+# the tests, and the tests break if they get a copy built by some
+# other shell. The PID is read from $sysparams - $$ would not do as
+# a key, because zsh keeps the main shell's PID in it inside
+# subshells
+zmodload zsh/system
+typeset -g bootstrap_pid="$sysparams[pid]"
+
+# Deliberately not -g: sourcing this script inside a helper function
+# would make this a local of that function, gone before any test runs
+typeset bootstrap_scoped_var='present'
+
+if [[ -n $BOOTSTRAP_LOG ]]; then
+    print -r -- "$bootstrap_pid" >> "$BOOTSTRAP_LOG"
+fi

@@ -138,14 +138,14 @@ function _zunit_execute_test() {
             _zunit_error $output
             return
         elif [[ -z $allow_risky && $state -eq 248 ]]; then
-            # If --verbose is specified, print test output to screen
-            [[ -n $verbose && -n $output ]] && echo $output
+            # The result is printed first, so that the output which
+            # --verbose indents beneath it is attributed to this test
             _zunit_warn 'No assertions were run, ${name} test considered risky'
+            _zunit_verbose_output "$output"
             return
         elif [[ -n $allow_risky && $state -eq 248 ]] || [[ $state -eq 0 ]]; then
-            # If --verbose is specified, print test output to screen
-            [[ -n $verbose && -n $output ]] && echo $output
             _zunit_success
+            _zunit_verbose_output "$output"
             return
         else
             _zunit_failure $output
@@ -196,7 +196,7 @@ function _zunit_parse_argument() {
 
     # If the argument begins with an underscore, then it
     # should not be run, so we skip it
-    if [[ "${argument:0:1}" = "_" || "$(basename $argument | cut -c 1)" = "_" ]]; then
+    if [[ "${argument:0:1}" = "_" || "$(print -- ${argument:t} | cut -c 1)" = "_" ]]; then
         return
     fi
 
@@ -245,6 +245,7 @@ function _zunit_parse_argument() {
 function _zunit_run() {
     local -a arguments testfiles
     local fail_fast tap allow_risky verbose revolver
+    local parallel parallel_slice no_progress _zunit_parallel_child __zunit_parallel_bootstrap
     local output_text logfile_text output_html logfile_html
 
     # Load the datetime module, and record the start time
@@ -257,7 +258,10 @@ function _zunit_run() {
         f=fail_fast -fail-fast=fail_fast \
         r=revolver -revolver=revolver \
         t=tap -tap=tap \
+        p=parallel -parallel=parallel \
         -allow-risky=allow_risky \
+        -no-progress=no_progress \
+        -slice=parallel_slice \
         -output-html=output_html \
         -output-text=output_text \
         -time-limit:=time_limit \
@@ -314,6 +318,21 @@ function _zunit_run() {
         _zunit_html_header > $logfile_html
     fi
 
+    # Check if parallel is specified in the config or as an option.
+    # Resolved before the bootstrap script is handled below, because
+    # parallel mode changes where that script is sourced
+    if [[ -z $parallel ]] && [[ "$zunit_config_parallel" = "true" ]]; then
+        parallel=1
+    fi
+    # Splitting one file's tests across workers is opt-in. The tests in
+    # a file run in the order they are declared, and share whatever
+    # state they leave on disk, so a file is a single unit of work
+    # unless slicing has been asked for
+    if [[ -z $parallel_slice ]] && [[ "$zunit_config_parallel_slice" = "true" ]]; then
+        parallel_slice=1
+    fi
+    # There is nothing to slice a file across without parallel workers
+    [[ -n $parallel_slice ]] && parallel=1
     if [[ -n $zunit_config_directories_support ]]; then
         # Check that the support directory exists
         local support="$zunit_config_directories_support"
@@ -322,11 +341,20 @@ function _zunit_run() {
             exit 1
         fi
 
-        # Look for a bootstrap script in the support directory,
-        # and run it if it is available
+        # Look for a bootstrap script in the support directory. A
+        # serial run sources it here, once, into this shell. A
+        # parallel run leaves it to the workers instead, so that
+        # every worker builds its own copy of the environment the
+        # script prepares, exactly as a standalone run of its test
+        # file would
         if [[ -f "$support/bootstrap" ]]; then
-            source "$support/bootstrap"
-            print -Pr "%F{blue}==>%f Sourced bootstrap script $support/bootstrap"
+            if [[ -n $parallel ]]; then
+                __zunit_parallel_bootstrap="$support/bootstrap"
+                print -Pr "%F{blue}==>%f Bootstrap script $support/bootstrap will be sourced in each parallel worker"
+            else
+                source "$support/bootstrap"
+                print -Pr "%F{blue}==>%f Sourced bootstrap script $support/bootstrap"
+            fi
         fi
     fi
     # Check if fail_fast is specified in the config or as an option
@@ -341,6 +369,11 @@ function _zunit_run() {
     if [[ -z $verbose ]] && [[ "$zunit_config_verbose" = "true" ]]; then
         verbose=1
     fi
+    # Check if the progress bar has been disabled in the config
+    # or as an option
+    if [[ -z $no_progress ]] && [[ "$zunit_config_progress" = "false" ]]; then
+        no_progress=1
+    fi
     # Check if verbose is specified in the config or as an option
     if [[ -z $revolver ]] && [[ "$zunit_config_revolver" = "true" ]]; then
         # Check for the 'revolver' dependency
@@ -354,9 +387,13 @@ function _zunit_run() {
         fi
     fi
 
-    # Check if time_limit is specified in the config or as an option
+    # Check if time_limit is specified in the config or as an option.
+    # The '--time-limit=5' form leaves the '=' attached to the value
+    # where the '--time-limit 5' form does not, so it is stripped here
+    # and both forms reach the arithmetic in the runner as a number
     if [[ -n $time_limit ]]; then
         shift time_limit
+        time_limit=(${time_limit#=})
     elif [[ -n $zunit_config_time_limit ]]; then
         time_limit=$zunit_config_time_limit
     fi
@@ -385,9 +422,13 @@ function _zunit_run() {
     local line 
     local -i total
     local -a errors failed passed skipped warnings
-    for testfile in ${(o)testfiles}; do
-        _zunit_run_testfile $testfile
-    done
+    if [[ -n $parallel ]]; then
+        _zunit_parallel_run
+    else
+        for testfile in ${(o)testfiles}; do
+            _zunit_run_testfile $testfile
+        done
+    fi
 
     end_time=$((EPOCHREALTIME*1000))
 
@@ -399,11 +440,18 @@ function _zunit_run() {
     # Output results to screen and kill the progress indicator
     _zunit_output_results
 
-    # If the total of ($passed + $skipped) is not equal to the
-    # total, then there must have been failures, errors or warnings,
-    # in which case this assertion will return the correct exit code
-    # for the test run as a whole
-    [[ $(( $#passed + $#skipped )) -eq $total ]]
+    # If any errors were reported, or the total of ($passed + $skipped)
+    # is not equal to the total, then there must have been failures,
+    # errors or warnings, in which case this assertion will return the
+    # correct exit code for the test run as a whole. Errors are checked
+    # separately because file-level errors (e.g. an unparseable @setup)
+    # are reported without incrementing the total
+    [[ $#errors -eq 0 && $(( $#passed + $#skipped )) -eq $total ]]
+} # ]]]
+# FUNCTION: _zunit_testfile_header [[[
+# Print the loading header for a test file
+function _zunit_testfile_header() {
+    print -Pr "%F{blue}==>%f Loading tests in %B${1}%b"
 } # ]]]
 # FUNCTION: _zunit_run_testfile [[[
 # Run all tests within a file
@@ -411,13 +459,18 @@ function _zunit_run_testfile() {
     local testbody testname pattern \
         setup teardown
     local -a bits; bits=("${(s/@/)1}")
-    local testfile="${bits[1]}" test_to_run="${bits[2]}" testdir="$(dirname "$testfile")"
+    local testfile="${bits[1]}" test_to_run="${bits[2]}"
+    # Computed in a separate statement so that it refers to the local
+    # $testfile above, not the caller's variable of the same name
+    local testdir="$(dirname "$testfile")"
+    integer __zunit_group="${2:-0}" __zunit_ngroups="${3:-0}"
     local -a lines tests test_names
     tests=()
     test_names=()
 
-    # Update status message
-    print -Pr "%F{blue}==>%f Loading tests in %B${testfile}%b"
+    # Update status message. Parallel workers stay silent - the
+    # parent prints the header while replaying results
+    [[ -z $_zunit_parallel_child ]] && _zunit_testfile_header "$testfile"
 
     # A regex pattern to match test declarations
     pattern='^ *@test  *([^ ].*)  *\{ *(.*)$'
@@ -488,9 +541,11 @@ function _zunit_run_testfile() {
         # Quietly eval the body into a variable as a first test
         output=$(eval "$(echo "$setupfunc")" 2>&1)
 
-        # Check the status of the eval, and output any errors
+        # Check the status of the eval, and output any errors. In
+        # single-file parallel mode every group parses the file, so
+        # only the first group reports the error to avoid duplicates
         if [[ $? -ne 0 ]]; then
-            _zunit_error "Failed to parse setup method" $output
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse setup method" $output
 
             return 126
         fi
@@ -502,7 +557,7 @@ function _zunit_run_testfile() {
         # Any errors should have been caught above, but if the function
         # does not exist, we can't go any further
         if (( ! $+functions[__zunit_test_setup] )); then
-            _zunit_error "Failed to parse setup method"
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse setup method"
 
             return 126
         fi
@@ -518,9 +573,10 @@ function _zunit_run_testfile() {
         # Quietly eval the body into a variable as a first test
         output=$(eval "$(echo "$teardownfunc")" 2>&1)
 
-        # Check the status of the eval, and output any errors
+        # Check the status of the eval, and output any errors. As with
+        # setup errors, only the first parallel group reports this
         if [[ $? -ne 0 ]]; then
-            _zunit_error "Failed to parse teardown method" $output
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse teardown method" $output
 
             return 126
         fi
@@ -532,18 +588,34 @@ function _zunit_run_testfile() {
         # Any errors should have been caught above, but if the function
         # does not exist, we can't go any further
         if (( ! $+functions[__zunit_test_teardown] )); then
-            _zunit_error "Failed to parse teardown method"
+            (( __zunit_group <= 1 )) && _zunit_error "Failed to parse teardown method"
 
             return 126
         fi
     fi
 
-    # Loop through each of the tests and execute it
-    integer i=1
+    # Loop through each of the tests and execute it. When a group is
+    # specified, only the tests within this worker's contiguous slice
+    # of the file are executed
+    integer i=1 __zunit_lo=1 __zunit_hi=${#test_names}
+    if (( __zunit_ngroups > 0 )); then
+        integer __zunit_per=$(( ${#test_names} / __zunit_ngroups ))
+        integer __zunit_rem=$(( ${#test_names} % __zunit_ngroups ))
+        __zunit_lo=$(( (__zunit_group - 1) * __zunit_per + ( (__zunit_group - 1) < __zunit_rem ? (__zunit_group - 1) : __zunit_rem ) + 1 ))
+        __zunit_hi=$(( __zunit_lo + __zunit_per + (__zunit_group <= __zunit_rem ? 1 : 0) - 1 ))
+    fi
     local name body
     for name in "${test_names[@]}"; do
-        body="${tests[$i]}"
-        _zunit_execute_test "$name" "$body"
+        # Stop early if another parallel worker has already failed
+        # under --fail-fast
+        if [[ -n $_zunit_parallel_child && -n $__zunit_parallel_fail_fast && -f $__zunit_parallel_abortfile ]]; then
+            break
+        fi
+
+        if (( i >= __zunit_lo && i <= __zunit_hi )); then
+            body="${tests[$i]}"
+            _zunit_execute_test "$name" "$body"
+        fi
         i=$(( i + 1 ))
     done
 
@@ -561,12 +633,15 @@ function _zunit_run_usage() {
     echo "$(color yellow 'Options:')"
     echo "  -h, --help             Output help text and exit"
     echo "  -f, --fail-fast        Stop the test runner immediately after the first failure"
-    echo "  -r  --revolver         Run tests with revolver spinner"
+    echo "  -p, --parallel         Run tests in parallel across CPU cores"
+    echo "  -r, --revolver         Run tests with revolver spinner"
     echo "  -t, --tap              Output results in a TAP compatible format"
     echo "  -v, --version          Output version information and exit"
     echo "      --allow-risky      Supress warnings generated for risky tests"
+    echo "      --no-progress      Disable the progress bar during parallel runs"
     echo "      --output-html      Print results to a HTML page"
     echo "      --output-text      Print results to a text log, in TAP compatible format"
+    echo "      --slice            Split a single test file's tests across workers"
     echo "      --time-limit <n>   Set a time limit of n seconds for each test"
     echo "      --verbose          Prints full output from each test"
 } # ]]]

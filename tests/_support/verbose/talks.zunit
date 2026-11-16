@@ -1,0 +1,11 @@
+#!/usr/bin/env zunit
+
+@test 'talks while passing' {
+  echo 'first line'
+  echo 'second line'
+  assert 1 equals 1
+}
+
+@test 'stays quiet while passing' {
+  assert 'foo' same_as 'foo'
+}

@@ -85,7 +85,7 @@ docs:
 info:
 	@${MAKE} .container COMMAND="sh -c 'cat ${PROJECT}/VERSION; zsh --version; git --version; env'"
 
-tests:
+itests:
 	@${make} .container command="sh -c 'zdotdir=${tests} zunit=${project} cram ${cram_opts} --shell=zsh ${test}'"
 
 tests:
@@ -112,3 +112,4 @@ build:
 	@$(call ised,"s/{{ZUNIT_REVISION}}/$$(git log -n1 --format=%h -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_REVISION_DATE}}/$$(git log -n1 --format='%ai' -- src)/",${PROG})
 	@$(call ised,"s/{{ZUNIT_VERSION}}/$$(echo ${VERSION})/",${PROG})
+	@chmod +x ${PROG}

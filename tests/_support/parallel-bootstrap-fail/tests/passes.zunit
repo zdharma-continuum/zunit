@@ -1,0 +1,5 @@
+#!/usr/bin/env zunit
+
+@test 'passes when its bootstrap is ignored' {
+  assert 1 equals 1
+}

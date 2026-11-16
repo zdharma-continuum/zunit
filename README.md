@@ -44,6 +44,140 @@ Tests in ZUnit have a simple syntax, which is inspired by the [BATS](https://git
 The body of each test can contain any valid ZSH code. The zunit shebang `#!/usr/bin/env zunit` **MUST** appear at the
 top of each test file, or ZUnit will not run it.
 
+## Usage
+
+```
+zunit [options] [command] [tests...]
+```
+
+### Commands
+
+| Command | Description |
+| --- | --- |
+| `zunit init` | Bootstrap ZUnit in a new project, writing `.zunit.yml`, a test directory and an example test |
+| `zunit run [tests...]` | Run tests |
+
+The command is optional. If the first argument is not a recognised command it is treated as a test
+path and passed to `run`, so `zunit tests/example.zunit` and `zunit run tests/example.zunit` are
+equivalent.
+
+### Options
+
+Options may be written on either side of the command, so `zunit --parallel run tests` and
+`zunit run --parallel tests` are equivalent. `-h`/`--help` and `-v`/`--version` are accepted
+anywhere. Every other option belongs to a command — `--travis` to `init`, the rest to `run` — so
+`-t` means `--tap` when it is given to `run` and `--travis` when it is given to `init`, wherever on
+the line it appears.
+
+| Option | Description |
+| --- | --- |
+| `-h`, `--help` | Output help text and exit |
+| `-f`, `--fail-fast` | Stop the test runner immediately after the first failure |
+| `-p`, `--parallel` | Run tests in parallel across CPU cores |
+| `-r`, `--revolver` | Run tests with [revolver](https://github.com/molovo/revolver) spinner |
+| `-t`, `--tap` | Output results in a TAP compatible format |
+| `-v`, `--version` | Output version information and exit |
+| `--allow-risky` | Suppress warnings generated for risky tests |
+| `--no-progress` | Disable the progress bar during parallel runs |
+| `--output-html` | Print results to a HTML page |
+| `--output-text` | Print results to a text log, in TAP compatible format |
+| `--slice` | Split a single test file's tests across workers. Implies `--parallel` |
+| `--time-limit <n>` | Set a time limit of n seconds for each test |
+| `--verbose` | Print full output from each test |
+
+`zunit init` takes `-t`/`--travis`, which additionally writes a `.travis.yml` to the project.
+
+Single letter options may be stacked, and options may appear either side of the test paths, so
+`zunit run -fp tests` and `zunit run tests --fail-fast --parallel` are both valid.
+
+### Test arguments
+
+`zunit run` accepts any number of arguments, in three forms:
+
+```zsh
+zunit run tests/example.zunit              # a single file
+zunit run tests                            # a directory
+zunit run 'tests/example.zunit@my test'    # a single test within a file
+```
+
+Directories are walked recursively. Within a directory, files which do not end in `.zunit` are
+skipped, as is any path whose name begins with an underscore — which is what keeps `tests/_support`
+and `tests/_output` out of a run. A file passed explicitly is run whatever its extension, as long as
+it carries the ZUnit shebang.
+
+With no arguments, ZUnit runs the directory named by `directories.tests` in `.zunit.yml`, falling
+back to `tests`.
+
+### Configuration
+
+`zunit init` writes a `.zunit.yml` to the root of the project. Every key has a command line
+equivalent. The boolean keys can only be turned on — an option enables a feature the config left
+off, but a feature enabled in the config cannot be switched back off from the command line. The two
+exceptions are `time_limit`, which `--time-limit` overrides outright, and `progress`, which
+`--no-progress` disables.
+
+```yaml
+tap: false
+directories:
+  tests: tests
+  output: tests/_output
+  support: tests/_support
+time_limit: 0
+fail_fast: false
+allow_risky: false
+parallel: false
+parallel_slice: false
+progress: true
+verbose: false
+revolver: false
+```
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `tap` | `false` | Equivalent to `--tap` |
+| `directories.tests` | `tests` | Where `zunit run` looks when given no arguments |
+| `directories.output` | `tests/_output` | Must be set before `--output-text` or `--output-html` will run |
+| `directories.support` | `tests/_support` | Must exist if set. A `bootstrap` script inside it is sourced once before a serial run, and by each worker in a parallel run |
+| `time_limit` | `0` | Seconds allowed per test. `0` means no limit |
+| `fail_fast` | `false` | Equivalent to `--fail-fast` |
+| `allow_risky` | `false` | Equivalent to `--allow-risky` |
+| `parallel` | `false` | Equivalent to `--parallel` |
+| `parallel_slice` | `false` | Equivalent to `--slice` |
+| `progress` | `true` | Set to `false` for the same effect as `--no-progress` |
+| `verbose` | `false` | Equivalent to `--verbose` |
+| `revolver` | `false` | Equivalent to `--revolver`. Requires the `revolver` binary on `$PATH` |
+
+The unit of work in a parallel run is a whole test file. The tests inside a file run in the order
+they are declared, and share whatever state they leave on disk, so a file is never split across
+workers by default — a run of one file is a run of one worker.
+
+`--slice` opts out of that. It splits a single file's tests into contiguous groups, one per worker,
+and is worth reaching for when a large file's tests are genuinely independent of each other and of
+their order. It does nothing when more than one file is queued, since those are already running side
+by side, and it implies `--parallel`.
+
+Every parallel run says how it was split before the first worker starts — `==> 4 parallel groups
+across 8 workers`, or `slice groups` when `--slice` split one file's tests. The number of workers is
+the most the run will start at once, taken from the CPU count. The line is left out of `--tap`
+output.
+
+The progress bar is drawn during parallel runs only, and only when stderr is a terminal and TAP
+output has not been requested, so report files are byte for byte identical to a serial run, and
+piped output differs from one only by the line above.
+
+During a parallel run the bootstrap script is not sourced into the runner itself. Each worker
+sources it before running its share of the tests, so every worker builds its own copy of whatever
+environment the script prepares, and nothing the script creates is shared between workers. A worker
+whose bootstrap fails runs no tests, and the run reports the failure and exits non-zero.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Every test passed or was skipped |
+| `1` | One or more tests failed, errored or warned, or the run could not be started |
+| `126` | A test file was missing, or did not carry the ZUnit shebang |
+
 ## Documentation
 
 For a full breakdown of ZUnit's syntax and functionality, check out the

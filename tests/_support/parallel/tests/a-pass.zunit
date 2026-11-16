@@ -1,0 +1,9 @@
+#!/usr/bin/env zunit
+
+@test 'a first passes' {
+  assert 1 equals 1
+}
+
+@test 'a second passes' {
+  assert 'foo' same_as 'foo'
+}

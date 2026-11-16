@@ -1,0 +1,133 @@
+#!/usr/bin/env zunit
+
+@setup {
+  project_root="${testdir:A:h}"
+  zunit_bin="$project_root/bin/zunit"
+  fixture="$project_root/tests/_support/verbose"
+  slow_fixture="$project_root/tests/_support/parallel-slow/tests/slow.zunit"
+
+  # Everything a run prints which is not the same twice - the timing
+  # line, and the banner which names the version and the shell. What is
+  # left is comparable between two runs of the same tests
+  stable_output() {
+    zsh "$zunit_bin" "$@" 2>&1 \
+      | grep -v -e 'ran in' -e 'Launching ZUnit' -e 'ZSH: '
+  }
+
+  # Two runs are compared through cksum rather than with same_as, which
+  # matches its argument as a glob, and a reporter line is full of the
+  # escapes and brackets a glob reads as syntax
+  stable_sum() {
+    stable_output "$@" | cksum
+  }
+
+  # A throwaway project, for the cases which bootstrap one. `zunit init`
+  # refuses to overwrite anything it finds already in place
+  project_dir="$(mktemp -d "${TMPDIR:-/tmp}/zunit-cli.XXXXXXXX")"
+}
+
+@teardown {
+  [[ -n $project_dir ]] && rm -rf "$project_dir"
+}
+
+@test 'an option is read the same before the command as after it' {
+  # The reported bug - the command used to be read from the first word,
+  # so an option written ahead of it left the word `run` behind to be
+  # parsed as a test path
+  local output="$(stable_output --verbose run "$fixture")"
+
+  assert "$output" matches '  first line'
+  assert "$output" does_not_match 'could not be found'
+  assert "$(print -r -- "$output" | cksum)" same_as "$(stable_sum run --verbose "$fixture")"
+}
+
+@test 'an option before the command agrees with a command left out' {
+  # With no command at all the whole line goes to `run`, and that is
+  # the path which always worked. It has to agree with the other two
+  assert "$(stable_sum --verbose "$fixture")" same_as "$(stable_sum --verbose run "$fixture")"
+}
+
+@test 'a stacked short option before the command is read' {
+  # zparseopts splits a cluster once the command has been found, so the
+  # search for the command has to leave the cluster whole
+  local output="$(stable_output -ft run "$fixture")"
+
+  assert "$output" matches 'TAP version 13'
+  assert "$output" does_not_match 'could not be found'
+}
+
+@test 'the command is not read from the value of an option' {
+  # '--time-limit' takes its value from the word which follows it, so
+  # that word is not a command however much it looks like one
+  local output="$(stable_output --time-limit 5 run "$fixture")"
+
+  assert "$output" matches 'talks while passing'
+  assert "$output" does_not_match 'could not be found'
+}
+
+@test 'a time limit joined with an equals sign is enforced' {
+  # zparseopts leaves the '=' attached to the value in this form and
+  # not in the other, and the arithmetic which works out the kill time
+  # reads '=1' as no number of seconds at all
+  run zsh "$zunit_bin" --time-limit=1 run "$slow_fixture"
+
+  assert "$output" contains 'exceeded time limit'
+}
+
+@test 'help before a command is the help for that command' {
+  assert "$(stable_output --help run)" contains 'zunit run [options]'
+  assert "$(stable_output --help init)" contains 'zunit init [options]'
+  assert "$(stable_output --help)" contains 'zunit [options] [command]'
+}
+
+@test 'an option before init is given to init' {
+  # -t is --tap to `run` and --travis to `init`, so it takes its
+  # meaning from the command rather than from where it was written
+  zsh -c "cd '$project_dir' && zsh '$zunit_bin' -t init" >/dev/null 2>&1
+
+  assert "$project_dir/.travis.yml" is_file
+}
+
+@test 'init keeps reading options past one it does not know' {
+  # An option meant for the runner stops the parse dead unless it is
+  # allowed to pass through, and --travis written after it is lost
+  zsh -c "cd '$project_dir' && zsh '$zunit_bin' --verbose init --travis" >/dev/null 2>&1
+
+  assert "$project_dir/.travis.yml" is_file
+}
+
+@test 'a test path is still read as one' {
+  # The command is optional, and a word which is not a command is a
+  # test path. Both have to survive the search for a command
+  local output="$(stable_output "$fixture")"
+
+  assert "$output" matches 'talks while passing'
+  assert "$output" does_not_match 'could not be found'
+}
+
+@test 'a test path named after a command is still reachable' {
+  # Only the first word which could be a command is taken as one, so
+  # `zunit run run` runs a path called `run`. The path does not exist
+  # here, and the message naming it is what says the second `run` was
+  # passed through - a swallowed one leaves the default test directory
+  # to be reported instead
+  run zsh -c "cd '$project_dir' && zsh '$zunit_bin' run run"
+
+  assert "$output" contains "'run' could not be found"
+}
+
+@test 'the command search skips the value of every option which takes one' {
+  # An option whose spec ends in ':' has its value read from the word
+  # which follows it, so the search for the command has to step over
+  # that word too, or a value is read as a command. An option of that
+  # kind added later belongs in the search as well
+  local -a specs
+  local spec runner="$(<$zunit_bin)"
+  specs=(${(f)"$(grep -oE -- '-[a-z-]+:=' "$zunit_bin" | sed 's/:=$//' | sort -u)"})
+
+  assert ${#specs} is_greater_than 0
+
+  for spec in $specs; do
+    assert "$runner" contains "-$spec"' ) i=$(( i + 1 ))'
+  done
+}

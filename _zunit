@@ -1,64 +1,140 @@
 #compdef zunit
 
-_zunit_commands=(
-  'run:Run tests'
-  'init:Bootstrap ZUnit in a new project'
-)
-
 _zunit() {
-  typeset -A opt_args
-  local context state line curcontext="$curcontext"
+    local curcontext="$curcontext" line
+    typeset -A opt_args
+    local -a global_options run_options init_options
 
-  _arguments \
-    '1: :_zunit_cmds' \
-    '*::arg:->args'
+    # Read before the command is, and exclusive of everything else
+    global_options=(
+        '(- : *)'{-h,--help}'[output help text and exit]'
+        '(- : *)'{-v,--version}'[output version information and exit]'
+    )
 
-  _arguments \
-    '*:tests:_files'
+    run_options=(
+        $global_options
+        '(-f --fail-fast)'{-f,--fail-fast}'[stop the test runner immediately after the first failure]'
+        '(-p --parallel)'{-p,--parallel}'[run tests in parallel across CPU cores]'
+        '(-r --revolver)'{-r,--revolver}'[run tests with revolver spinner]'
+        '(-t --tap)'{-t,--tap}'[output results in a TAP compatible format]'
+        '--allow-risky[supress warnings generated for risky tests]'
+        '--no-progress[disable the progress bar during parallel runs]'
+        '--output-html[print results to a HTML page]'
+        '--output-text[print results to a text log, in TAP compatible format]'
+        "--slice[split a single test file's tests across workers]"
+        '--time-limit=[set a time limit in seconds for each test]:seconds: _guard "[0-9]#" seconds'
+        '--verbose[prints full output from each test]'
+    )
 
-  _arguments -A \
-    '(-h --help)'{-h,--help}'[show help text and exit]' \
-    '(-v --version)'{-v,--version}'[show version information and exit]' \
-    '(-f --fail-fast)'{-f,--fail-fast}'[stop execution after the first failure]' \
-    '(-t --tap)'{-t,--tap}'[output results in a TAP compatible format]' \
-    '--verbose[prints full output from each test]' \
-    '--output-text[print results to a text log, in TAP compatible format]' \
-    '--output-html[print results to a HTML page]' \
-    '--allow-risky[supress warnings generated for risky tests]' \
-    '--time-limit[set a time limit in seconds for each test]'
+    init_options=(
+        $global_options
+        '(-t --travis)'{-t,--travis}'[generate .travis.yml in project]'
+    )
 
-  case "$state" in
-    args )
-      case "$words[1]" in
-        init )
-          _arguments -A \
-            '(-h --help)'{-h,--help}'[show help text and exit]' \
-            '(-t --travis)'{-t,--travis}'[generate a .travis.yml file]'
+    # An option which belongs to a command may be written before it, so
+    # the command is the first word which is neither an option nor the
+    # value of one, exactly as the runner reads it. Only the words
+    # before the cursor are scanned, so that the word being completed is
+    # never taken for the command
+    local ctx
+    local -i i pos=0
+    for (( i = 2; i < CURRENT; i++ )); do
+        case "$words[i]" in
+            --time-limit ) i=$(( i + 1 )) ;;
+            -* ) ;;
+            * ) ctx="$words[i]"; pos=i; break ;;
+        esac
+    done
 
-          _arguments \
-            '*::arg:->args'
-          ;;
-        run )
-          _arguments -A \
-            '(-h --help)'{-h,--help}'[show help text and exit]' \
-            '(-f --fail-fast)'{-f,--fail-fast}'[stop execution after the first failure]' \
-            '(-t --tap)'{-t,--tap}'[output results in a TAP compatible format]' \
-            '--verbose[prints full output from each test]' \
-            '--output-text[print results to a text log, in TAP compatible format]' \
-            '--output-html[print results to a HTML page]' \
-            '--allow-risky[supress warnings generated for risky tests]' \
-            '--time-limit[set a time limit in seconds for each test]'
+    # A recognised command takes the place of the `zunit` word at the
+    # front of the line, so that _arguments reads it as the command
+    # word and everything written before it as an option given to it
+    if [[ $ctx == (init|run) ]]; then
+        words=($ctx "${(@)words[2,pos-1]}" "${(@)words[pos+1,-1]}")
+        ((CURRENT--))
 
-          _arguments \
-            '*:tests:_files'
-          ;;
-      esac
-      ;;
-  esac
+        # `init` is the only command whose options differ, and it takes
+        # no arguments of its own
+        if [[ $ctx == init ]]; then
+            _arguments -s $init_options
+            return
+        fi
+
+        # Options may be given either side of the test arguments, so -A
+        # is deliberately absent. Single letter options can be stacked,
+        # hence -s. The test arguments are listed here rather than
+        # deferred to a second _arguments call through a
+        # '*::arg:->state' rest argument, because that call is never
+        # reached once an option follows the command
+        _arguments -s \
+            $run_options \
+            '*:test:_zunit_tests'
+        return
+    fi
+
+    # No command has been named. An unrecognised first word is a test
+    # path, and the whole line is handed to `run`, so the run options
+    # belong here too and the first argument may be either
+    _arguments -C -s \
+        $run_options \
+        '1: :_zunit_first_arg' \
+        '*:test:_zunit_tests'
 }
 
-(( $+functions[_zunit_cmds] )) || _zunit_cmds() {
-  _describe -t commands 'commands' _zunit_commands "$@"
+(($+functions[_zunit_commands])) || _zunit_commands() {
+    local -a commands
+    commands=(
+        'init:Bootstrap ZUnit in a new project'
+        'run:Run tests'
+    )
+
+    _describe -t commands 'command' commands
+}
+
+(($+functions[_zunit_test_names])) || _zunit_test_names() {
+    # The runner reads a test name as the text between the first and the
+    # last quote of an `@test` line, so read them back the same way here
+    local file="$1" line expl pattern='^ *@test  *([^ ].*)  *\{'
+    local -a names
+
+    [[ -f $file ]] || return 1
+
+    while IFS= read -r line; do
+        [[ $line =~ $pattern ]] || continue
+        names+=("${line[(( ${line[(i)[\']]}+1 )),(( ${line[(I)[\']]}-1 ))]}")
+    done < $file
+
+    (($#names)) || return 1
+
+    # Only the name is being completed, so discard the path and the '@'
+    compset -P '[^@]#@'
+    _wanted tests expl 'test' compadd -a names
+}
+
+(($+functions[_zunit_tests])) || _zunit_tests() {
+    local -a ignored_paths
+
+    # A test argument is a file, a directory of test files, or a single
+    # test within a file, written as 'file.zunit@test name'
+    if [[ $PREFIX == *@* ]]; then
+        _zunit_test_names "${PREFIX%%@*}"
+        return
+    fi
+
+    # A path whose name begins with an underscore is skipped by the
+    # runner, so neither the output nor the support directory is worth
+    # offering. Directories are still offered, both as arguments in their
+    # own right and to descend into
+    ignored_paths=('_*')
+
+    _files -F ignored_paths -g '*.zunit'
+}
+
+(($+functions[_zunit_first_arg])) || _zunit_first_arg() {
+    # The command is optional - `zunit tests/example.zunit` runs the file
+    _alternative \
+        'commands:command:_zunit_commands' \
+        'tests:test:_zunit_tests'
 }
 
 _zunit "$@"

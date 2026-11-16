@@ -1,0 +1,15 @@
+#!/usr/bin/env zunit
+
+# These tests do nothing but take long enough for the runner drawing
+# them to be interfered with - resized, typed at - while it is still
+# going. One test per worker, so the run lasts a single sleep
+
+@test 'slow one' {
+  sleep 2
+  assert 1 equals 1
+}
+
+@test 'slow two' {
+  sleep 2
+  assert 1 equals 1
+}

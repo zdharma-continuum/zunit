@@ -1,0 +1,33 @@
+#!/usr/bin/env zunit
+
+@test 'single one passes' {
+  assert 1 equals 1
+}
+
+@test 'single two fails' {
+  assert 1 equals 2
+}
+
+@test 'single three skips' {
+  skip 'skipped on purpose'
+}
+
+@test 'single four passes' {
+  assert 'a b c' same_as 'a b c'
+}
+
+@test 'single five is risky' {
+  echo 'no assertions here'
+}
+
+@test 'single six passes' {
+  assert 6 equals 6
+}
+
+@test 'single seven passes' {
+  assert 7 is_positive
+}
+
+@test 'single eight passes' {
+  assert 8 equals 8
+}
